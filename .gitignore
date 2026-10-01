@@ -216,3 +216,17 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local inputs, credentials, recordings, and scanner output
+.env.*
+!.env.example
+data/
+artifacts/
+*.ts
+*.iq
+*.sqlite
+*.sqlite3
+*.db
+*.log
+gitleaks-report.*
+.private-identifiers
