@@ -101,3 +101,15 @@ pytestの合成回帰試験10件、working・全ローカル履歴の機密検�
 現在のindexに対する`.githooks/pre-commit`、hookと共通スクリプトの`sh -n`、
 `git diff --check`も成功しました。仮想環境と各ツールcacheはGit除外を確認済みです。
 GitHub Actionsの実行、必須check設定、native依存・実機受信の検証は未実施です。
+
+### 設定調整とGitHubへの保存（2026-10-02）
+
+コミット前のmypy実行と未使用のHTTPXを外し、関連する依存もlockfileから削除しました。
+調整後のコミット前hookとpush前の共通チェックは成功しました。
+pytestの合成回帰試験は10件成功し、機密検査はコミット対象・working・全履歴で成功しました。
+
+公開前に引継ぎ文書から個人のRF接続条件を除去し、GNU GPLの本文との一致を確認しました。
+開発環境・公開用文書を作業ブランチへコミット・pushして
+[PR #1](https://github.com/hayatky/sdr-dtv-poc/pull/1)にまとめました。
+GitHub Actionsはリポジトリ側で無効になっており、CIは未実行です。
+有効化の明示的な承認を得てからCIを確認します。既定ブランチへの統合は別の操作です。
