@@ -38,6 +38,7 @@ STATIC = Path(__file__).with_name("static")
 UI_FILES = {
     "style.css": "text/css",
     "api.js": "text/javascript",
+    "player.js": "text/javascript",
     "mock.js": "text/javascript",
     "app.js": "text/javascript",
 }

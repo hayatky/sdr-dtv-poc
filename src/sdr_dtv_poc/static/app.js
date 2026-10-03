@@ -11,7 +11,7 @@
   const SPEEDS = [1, 10, 30];
   const requestedSpeed = Number(params.get('speed'));
   const api = SdrApi.create({
-    mode: 'mock',
+    mode: params.get('mode') === 'mock' ? 'mock' : 'http',
     scenario: params.get('demo') || 'normal',
     speed: SPEEDS.includes(requestedSpeed) ? requestedSpeed : 1,
   });
@@ -28,7 +28,7 @@
   const INPUT_KINDS = {
     live: {short: '実機ライブ', long: '実機ライブ（SDRボードで受信）', mark: '●'},
     saved_ts: {short: '保存TS', long: '保存TS（保存したファイルを再生）', mark: '■'},
-    synthetic: {short: '模擬入力', long: '模擬入力（合成テスト信号）', mark: '◆'},
+    synthetic: {short: '合成TS', long: '合成TS（自作のテスト映像・音声）', mark: '◆'},
   };
 
   const DIAG_ITEMS = [
@@ -77,6 +77,19 @@
     feature_not_implemented: ['この機能はまだ使えません', '後続の実装を待ってください。'],
   };
 
+  Object.assign(ERRORS, {
+    csrf_refresh_required: ['接続情報を更新しました', 'サーバーが再起動した可能性があります。現在の状態を確認してから、必要な操作をもう一度行ってください。自動では開始しません。'],
+    forbidden: ['操作が拒否されました', '接続情報を再取得します。状態を確認してから操作してください。'],
+    scan_busy: ERRORS.scan_active, recording_busy: ERRORS.recording_active,
+    insufficient_session_time: ['録画に必要な入力の残り時間が足りません', '5分録画には停止猶予を含む305秒の残量が必要です。受信を停止して選局し直してください。'],
+    device_busy: ['別の処理が受信機を使用しています', '使用中の処理を確認してください。自動では停止しません。'],
+    playback_busy: ['別の録画を再生する準備中です', '準備が終わるまでお待ちください。'],
+    recording_incomplete: ['録画が完了していません', '途中終了した録画は再生できません。'],
+    recording_file_missing: ['録画ファイルがありません', '管理者が保存先を確認してください。'],
+    recording_unavailable: ['この録画は利用できません', '未完了・途中終了・ファイルの欠損を確認してください。'],
+    recording_output_limit: ['録画の保存上限に達しました', '管理者が保存先を確認してください。'],
+  });
+
   const END_REASONS = {
     eof: 'ファイルの終わりで停止',
     requested: '手動で停止',
@@ -92,6 +105,7 @@
   };
 
   const SCAN_STAGES = {
+    detected: 'TSの番組情報を検出', not_detected: '今回未検出', not_run: '未実行',
     none: '信号なし',
     signal: '信号のみ検出（番組情報は未確認）',
     tmcc: '受信情報（TMCC）まで確認',
@@ -101,6 +115,7 @@
   };
 
   const STEP_STATUS = {
+    not_checked: {label: '未確認', tone: 'warn', mark: '?'},
     waiting: {label: '待機中', tone: 'muted', mark: '…'},
     ok: {label: '正常', tone: 'ok', mark: '✓'},
     failed: {label: '失敗', tone: 'danger', mark: '✕'},
@@ -110,6 +125,7 @@
   };
 
   const SCAN_PRESETS = [
+    {id: 'synthetic', label: '合成TSのプリセット'},
     {id: 'all', label: 'UHFの全範囲（13〜52ch）', from: 13, to: 52},
     {id: 'low', label: '低い側（13〜32ch）', from: 13, to: 32},
     {id: 'high', label: '高い側（33〜52ch）', from: 33, to: 52},
@@ -154,10 +170,7 @@
   function errorText(code) {
     if (ERRORS[code]) return ERRORS[code];
     if (code && code.endsWith('_not_found')) return ['対象が見つかりません', '一覧を更新してから、もう一度お試しください。'];
-    return ['操作できませんでした', 'もう一度お試しください。'];
-  }
-  function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return ['操作できませんでした', `理由：${code || '不明'}。状態を確認してから操作してください。`];
   }
 
   // ---------- state ----------
@@ -165,12 +178,13 @@
   const initialTab = TABS.some(t => `#${t.id}` === location.hash) ? location.hash.slice(1) : 'scan';
 
   const state = reactive({
-    tab: initialTab,
+    tab: initialTab, bootstrap: null, suspended: false, mutating: false, mediaEpoch: 0,
+    playback: null, playbackPlayer: {phase: 'none'}, globalError: null,
     conn: {status: 'loading', lastOkAt: null},
     system: null,
     announce: '',
-    diag: {inputKind: 'live', phase: 'idle', result: null, checkedAt: null, error: null},
-    scanForm: {preset: 'all', from: 13, to: 52},
+    diag: {inputKind: 'synthetic', phase: 'idle', result: null, checkedAt: null, error: null},
+    scanForm: {preset: api.demo ? 'all' : 'synthetic', from: 13, to: 52},
     scan: {current: null, pending: false, error: null},
     services: {items: [], loaded: false},
     watch: {targetRef: null, session: null, action: null, error: null, confirmStop: false},
@@ -212,9 +226,9 @@
 
   // ---------- derived state ----------
 
-  const offline = () => state.conn.status === 'offline';
-  const restoreBlocked = () => state.system && ['unknown', 'failed'].includes(state.system.restore);
-  const storageLow = () => state.system && state.system.storage && !state.system.storage.ok;
+  const offline = () => state.conn.status !== 'ok';
+  const restoreBlocked = () => ['unknown', 'failed'].includes(state.system?.restore) || ['unknown', 'failed'].includes(session()?.restore) || ['unknown', 'failed'].includes(state.scan.current?.restore) || [state.watch.error, state.scan.error, state.rec.error].includes('restore_unverified');
+  const storageLow = () => state.diag.result?.checks?.storage?.status === 'failed' || (state.system?.storage && !state.system.storage.ok);
   const recording = () => state.rec.current && state.rec.current.state === 'running';
   const session = () => state.watch.session;
   const sessionActive = () => active(session());
@@ -227,10 +241,12 @@
   // Why an operation cannot start now. The API rejects the same cases; the
   // screen disables the control first so that the reason is visible.
   function blockReason(kind) {
+    if (state.mutating) return {text: '操作の結果を確認しています。'};
     if (offline()) return {text: 'サーバーと通信できないため操作できません。再接続を待ってください。'};
     if (restoreBlocked()) return {text: '受信機の設定を元に戻せたか確認できていないため、新しい受信を開始できません。'};
     if (storageLow()) return {text: '保存先の空き容量が足りないため開始できません。空き容量を増やしてください。'};
     if (kind === 'scan') {
+      if (!api.demo && !state.bootstrap?.scan_available) return {text: 'スキャン機能は利用できません。'};
       if (recording()) return {text: '録画中はスキャンできません。先に視聴タブで録画を停止してください。', go: 'watch'};
       if (sessionActive() || state.watch.action) return {text: '視聴中はスキャンできません。先に受信を停止してください。', stop: true};
     }
@@ -243,10 +259,13 @@
 
   function recordBlock() {
     const s = session();
+    if (state.mutating) return '操作の結果を確認しています。';
+    if (!api.demo && !state.bootstrap?.recording_available) return '録画機能は利用できません。';
+    if (restoreBlocked()) return '受信機の復元状態を確認してください。';
     if (offline()) return 'サーバーと通信できないため操作できません。';
     if (storageLow()) return '保存先の空き容量が足りないため録画できません。';
     if (!s || s.state !== 'running') return '局を選んで受信が始まると録画できます。';
-    if (s.remaining_seconds < RECORDING_LIMIT + STOP_GRACE) {
+    if (api.demo && s.remaining_seconds < RECORDING_LIMIT + STOP_GRACE) {
       return `受信の残り時間（${spoken(s.remaining_seconds)}）が足りないため、5分の録画を開始できません。受信を停止して選局し直すと録画できます。`;
     }
     return null;
@@ -254,6 +273,10 @@
 
   function scanRange() {
     const f = state.scanForm;
+    if (f.preset === 'synthetic') {
+      const channels = state.bootstrap?.scan_presets?.synthetic || [];
+      return {ok: channels.length > 0, channels, from: channels[0], to: channels.at(-1), message: '接続情報を取得しています。'};
+    }
     const preset = SCAN_PRESETS.find(p => p.id === f.preset);
     const from = preset.id === 'custom' ? Number(f.from) : preset.from;
     const to = preset.id === 'custom' ? Number(f.to) : preset.to;
@@ -265,323 +288,228 @@
     return {ok: true, channels, from, to};
   }
 
-  // ---------- server synchronisation ----------
-
-  let timer = null;
-  let polling = false;
-  let pageHidden = false;
-
+  // One read loop and one explicit mutation at a time. A generation fences every
+  // completion, including finally blocks, across actions and page lifecycle.
+  let timer = null, polling = false, pageHidden = false, epoch = 0;
+  const valid = own => own === epoch && !pageHidden;
   function markOnline() {
-    state.conn.status = 'ok';
-    state.conn.lastOkAt = new Date().toISOString();
-  }
-  function setOffline() {
-    if (state.conn.status !== 'offline') say('サーバーと通信できなくなりました。自動的に再接続します。');
-    state.conn.status = 'offline';
+    state.conn.status = 'ok'; state.conn.lastOkAt = new Date().toISOString();
   }
   function noteError(error) {
-    if (error.status === 0) setOffline();
+    if (error.code === 'cancelled') return;
+    if (error.status === 0 || error.status >= 500) {
+      state.conn.status = 'offline'; state.suspended = true;
+    }
+    if (error.status === 403) {
+      state.bootstrap = null;
+      state.globalError = 'csrf_refresh_required';
+      resetPlayer();
+    }
   }
-
   function schedule() {
     clearTimeout(timer);
-    if (pageHidden) return;
-    const busy = sessionActive() || scanning() || recording() || state.watch.action;
+    if (pageHidden || state.mutating) return;
+    const busy = sessionActive() || scanning() || recording() || state.recordings.playing;
     timer = setTimeout(refresh, offline() || !busy ? 5000 : 1000);
   }
-
-  async function refresh() {
-    if (polling || pageHidden) return;
-    polling = true;
-    clearTimeout(timer);
-    try {
-      const wasOffline = offline();
-      const status = await api.status();
-      markOnline();
-      state.system = status;
-      if (wasOffline) {
-        say('サーバーとの通信が戻りました。');
-        if (!state.services.loaded) loadServices();
-        loadRecordings();
-      }
-      await syncSession(status);
-      await syncScan(status);
-      await syncRecording(status);
-    } catch (error) {
-      noteError(error);
-    } finally {
-      polling = false;
-      schedule();
-    }
-  }
-
-  async function syncSession(status) {
-    const w = state.watch;
-    if (w.action) return; // the running action owns the session state
-    if (active(w.session)) {
-      const id = w.session.id;
-      const next = await api.getSession(id);
-      // Ignore late answers about a session that is no longer shown.
-      if (w.session && w.session.id === id && !w.action) applySession(next);
-    } else if (status.active_session_id && (!w.session || w.session.id !== status.active_session_id)) {
-      // Reload or another tab: show the running session; never start a new one.
-      const next = await api.getSession(status.active_session_id);
-      w.session = next;
-      w.targetRef = next.service_ref;
-      say(`受信中の${stationName(next.service_name)}を表示します。`);
-      applySession(next);
-    }
-  }
-
-  function applySession(next) {
-    const w = state.watch;
-    const before = w.session;
-    w.session = next;
-    if (next.state === 'running' && next.health && next.health.hls === 'ok' && state.player.sessionId !== next.id) {
-      startPlayer(next.id);
-    }
-    if (!active(next)) {
-      resetPlayer();
-      w.confirmStop = false;
-      if (active(before)) say(`受信を停止しました（${END_REASONS[next.end_reason] || '終了'}）。`);
-    }
-  }
-
-  async function syncScan(status) {
-    const sc = state.scan;
-    if (active(sc.current)) {
-      const id = sc.current.id;
-      const next = await api.getScan(id);
-      if (sc.current && sc.current.id === id) {
-        sc.current = next;
-        if (!active(next)) onScanEnded(next);
-      }
-    } else if (status.active_scan_id && (!sc.current || sc.current.id !== status.active_scan_id)) {
-      sc.current = await api.getScan(status.active_scan_id);
-    }
-  }
-
-  function onScanEnded(scan) {
-    if (scan.saved) loadServices();
-    say(scanResult(scan).title);
-  }
-
-  async function syncRecording(status) {
-    const r = state.rec;
-    if (r.current && r.current.state === 'running') {
-      const id = r.current.id;
-      const next = await api.getRecording(id);
-      if (r.current && r.current.id === id) {
-        r.current = next;
-        if (next.state !== 'running') onRecordingEnded(next);
-      }
-    } else if (status.active_recording_id && (!r.current || r.current.id !== status.active_recording_id)) {
-      r.current = await api.getRecording(status.active_recording_id);
-    }
-  }
-
-  function onRecordingEnded(rec) {
-    state.rec.last = rec;
-    say(rec.partial ? '録画が途中で終了しました。' : '録画を保存しました。');
-    loadRecordings();
-  }
-
-  async function loadServices() {
-    try {
-      state.services.items = await api.services();
-      state.services.loaded = true;
-      markOnline();
-    } catch (error) {
-      noteError(error);
-    }
-  }
-
-  async function loadRecordings() {
-    try {
-      state.recordings.items = await api.recordings();
-      state.recordings.loaded = true;
-      markOnline();
-    } catch (error) {
-      noteError(error);
-    }
-  }
-
-  // ---------- player (synthetic display only in #28) ----------
-
-  let playerTimer = null;
   function resetPlayer() {
-    clearTimeout(playerTimer);
+    state.mediaEpoch += 1;
     state.player = {phase: 'none', sessionId: null};
   }
-  function startPlayer(sessionId) {
-    clearTimeout(playerTimer);
-    state.player = {phase: 'preparing', sessionId};
-    playerTimer = setTimeout(() => {
-      if (state.player.sessionId !== sessionId) return;
-      state.player.phase = api.demo && api.demo.playerWillFail() ? 'failed' : 'showing';
-    }, 1000);
+  function applySession(next) {
+    const before = state.watch.session;
+    if (before?.id !== next?.id || (active(before) && !active(next))) resetPlayer();
+    state.watch.session = next;
+    state.watch.targetRef = next?.service_ref || null;
+    if (!active(next)) state.watch.confirmStop = false;
+    if (api.demo && next?.health?.hls === 'ok') state.player = {
+      phase: api.demo.playerWillFail() ? 'failed' : 'showing', sessionId: next.id};
   }
-
-  // ---------- user actions ----------
-
-  async function runDiagnostics() {
-    const d = state.diag;
-    d.phase = 'running';
-    d.error = null;
+  async function refresh() {
+    if (polling || pageHidden || state.mutating) return;
+    polling = true; clearTimeout(timer);
+    const own = epoch;
     try {
-      d.result = await api.diagnostics(d.inputKind);
-      d.checkedAt = new Date().toISOString();
-      d.phase = 'done';
-      markOnline();
-      say('接続の確認が終わりました。');
-    } catch (error) {
-      d.phase = 'error';
-      d.error = error.code;
-      noteError(error);
-    }
-  }
-
-  async function startScan() {
-    const range = scanRange();
-    const sc = state.scan;
-    if (!range.ok || sc.pending) return;
-    sc.pending = true;
-    sc.error = null;
-    try {
-      sc.current = await api.startScan(range.channels, api.newRequestId());
-      say(`${range.from}chから${range.to}chまでのスキャンを開始しました。`);
-    } catch (error) {
-      sc.error = error.code;
-      noteError(error);
-    } finally {
-      sc.pending = false;
-      refresh();
-    }
-  }
-
-  async function stopScan() {
-    const sc = state.scan;
-    if (!sc.current || sc.pending) return;
-    sc.pending = true;
-    try {
-      sc.current = await api.stopScan(sc.current.id);
-      say('スキャンを中止しています。');
-    } catch (error) {
-      sc.error = error.code;
-      noteError(error);
-    } finally {
-      sc.pending = false;
-      refresh();
-    }
-  }
-
-  async function waitStopped(id) {
-    const limit = Date.now() + 15000;
-    while (Date.now() < limit) {
-      const s = await api.getSession(id);
-      if (!active(s)) return s;
-      await sleep(400);
-    }
-    throw new SdrApi.ApiError(409, 'stop_timeout');
-  }
-
-  async function tune(ref) {
-    const w = state.watch;
-    if (w.action || blockReason('tune')) return;
-    if (active(w.session) && w.session.service_ref === ref) {
-      setTab('watch', true);
-      return;
-    }
-    w.error = null;
-    w.confirmStop = false;
-    w.targetRef = ref;
-    resetPlayer();
-    setTab('watch', true);
-    try {
-      if (active(w.session)) {
-        w.action = 'switching';
-        const old = w.session.id;
-        await api.stopSession(old);
-        await waitStopped(old);
+      const boot = await api.bootstrap();
+      const [status, services, recordings] = await Promise.all([
+        api.status(), api.services(), api.demo ? api.recordings() : Promise.resolve(null)]);
+      if (!valid(own)) return;
+      state.bootstrap = boot;
+      state.system = status;
+      state.services = {items: services, loaded: true};
+      state.recordings.items = recordings || status.recordings;
+      state.recordings.loaded = true;
+      if (api.demo) {
+        const ids = [status.active_session_id || state.watch.session?.id,
+          status.active_scan_id || state.scan.current?.id, status.active_recording_id || state.rec.current?.id];
+        const values = await Promise.all(ids.map((id, i) => id ? [api.getSession, api.getScan, api.getRecording][i](id) : null));
+        if (!valid(own)) return;
+        [status.session, status.scan, status.recording] = values;
       }
-      w.session = null;
-      w.action = 'starting';
-      const next = await api.startSession(ref, api.newRequestId());
-      if (w.targetRef === ref) w.session = next;
-      say(`${stationName(serviceByRef(ref) && serviceByRef(ref).name)}を選局しています。`);
+      const previousScan = state.scan.current, previousRec = state.rec.current;
+      applySession(status.session);
+      state.scan.current = status.scan;
+      state.rec.current = status.recording;
+      for (const target of [state.watch, state.scan, state.rec]) {
+        const recovery = target.recovery;
+        if (target.error === 'network_error' && recovery &&
+            (recovery.requestId ? status.observedRequestIds?.includes(recovery.requestId) :
+              status.stoppedIds?.includes(recovery.stoppedId))) {
+          target.error = null; target.recovery = null;
+          say("サーバーから操作の結果を確認しました。");
+        }
+      }
+      if (active(previousScan) && !active(status.scan) && status.scan) say(scanResult(status.scan).title);
+      if (active(previousRec) && !active(status.recording) && status.recording) onRecordingEnded(status.recording);
+      // A recovered page only reads the selected playback job; never POSTs it.
+      markOnline();
+      const id = state.recordings.playing;
+      if (!api.demo && id) {
+        try {
+          const playback = await api.getPlayback(id);
+          if (!valid(own) || state.recordings.playing !== id) return;
+          state.playback = playback;
+        } catch (error) {
+          if (!valid(own)) return;
+          if (error.status === 404) {
+            state.recordings.error = error.code; state.recordings.playing = null;
+          } else throw error;
+        }
+      }
+      state.suspended = false;
+    } catch (error) { if (valid(own)) noteError(error); }
+    finally { polling = false; schedule(); }
+  }
+  async function loadRecordings() { await refresh(); }
+  function onRecordingEnded(rec) {
+    state.rec.last = rec;
+    say(rec.state === 'completed' && !rec.partial ? '録画を保存しました。' : '録画が途中で終了しました。');
+  }
+  async function mutate(target, action, apply, stoppedId = null) {
+    if (state.mutating || pageHidden) return;
+    const own = ++epoch;
+    state.mutating = true; target.pending = true; target.error = null; target.recovery = null;
+    clearTimeout(timer); api.cancel();
+    if (state.diag.phase === 'running') state.diag.phase = 'idle';
+    try {
+      const result = await action();
+      if (valid(own)) { apply(result); state.globalError = null; }
     } catch (error) {
-      w.error = error.code;
-      noteError(error);
-      say(errorText(error.code)[0]);
+      if (valid(own)) {
+        target.error = error.code;
+        if (error.code === 'network_error') target.recovery = {requestId: error.requestId, stoppedId};
+        noteError(error); say(errorText(error.code)[0]);
+      }
     } finally {
-      w.action = null;
-      refresh();
+      if (own === epoch) {
+        state.mutating = false; target.pending = false; state.watch.action = null;
+        // A previous cancelled read may still be settling. Its finally schedules
+        // the sole loop; this read starts immediately only if it is already free.
+        if (!pageHidden) { refresh(); schedule(); }
+      }
     }
   }
-
-  async function stopReceiving() {
+  async function runDiagnostics() {
+    const own = epoch, kind = state.diag.inputKind;
+    state.diag.phase = 'running'; state.diag.error = null;
+    try {
+      const result = await api.diagnostics(kind);
+      if (!valid(own) || state.diag.inputKind !== kind) return;
+      Object.assign(state.diag, {result, phase: 'done', checkedAt: new Date().toISOString()});
+    } catch (error) {
+      if (valid(own) && state.diag.inputKind === kind) { state.diag.phase = 'error'; state.diag.error = error.code; noteError(error); }
+    }
+  }
+  function startScan() {
+    const range = scanRange();
+    if (!range.ok || blockReason('scan')) return;
+    return mutate(state.scan, () => api.startScan(range.channels, api.newRequestId()), next => { state.scan.current = next; });
+  }
+  function stopScan() {
+    if (!state.scan.current) return;
+    return mutate(state.scan, () => api.stopScan(state.scan.current.id), next => { state.scan.current = next; }, state.scan.current.id);
+  }
+  function tune(ref) {
+    if (blockReason('tune')) return;
     const w = state.watch;
-    if (!active(w.session) || w.action) return;
+    if (!api.demo && serviceByRef(ref)?.input_kind === 'live' && !state.bootstrap?.live_available) {
+      w.error = 'live_not_implemented'; return;
+    }
+    if (active(w.session) && w.session.service_ref === ref) { setTab('watch', true); return; }
+    w.targetRef = ref; w.confirmStop = false;
+    w.action = active(w.session) ? 'switching' : 'starting';
+    state.recordings.playing = null; state.playback = null;
+    resetPlayer(); setTab('watch', true);
+    return mutate(w, () => api.startSession(ref, api.newRequestId()), applySession);
+  }
+  function stopReceiving() {
+    const w = state.watch;
+    if (!active(w.session) || state.mutating) return;
     if (recording() && !w.confirmStop) {
-      w.confirmStop = true;
-      nextTick(() => refs.confirmStop && refs.confirmStop.focus());
-      return;
+      w.confirmStop = true; nextTick(() => refs.confirmStop?.focus()); return;
     }
-    w.confirmStop = false;
-    w.action = 'stopping';
-    try {
-      w.session = await api.stopSession(w.session.id);
-      resetPlayer();
-      say('受信を停止しています。');
-    } catch (error) {
-      w.error = error.code;
-      noteError(error);
-    } finally {
-      w.action = null;
-      refresh();
-    }
+    w.confirmStop = false; w.action = 'stopping'; resetPlayer();
+    return mutate(w, () => api.stopSession(w.session.id), applySession, w.session.id);
   }
-
   function cancelStop() {
-    state.watch.confirmStop = false;
-    nextTick(() => refs.stopButton && refs.stopButton.focus());
+    state.watch.confirmStop = false; nextTick(() => refs.stopButton?.focus());
+  }
+  function startRecording() {
+    if (recording() || recordBlock()) return;
+    state.rec.last = null;
+    return mutate(state.rec, () => api.startRecording(session().id, api.newRequestId()), next => { state.rec.current = next; });
+  }
+  function stopRecording() {
+    if (!recording()) return;
+    return mutate(state.rec, () => api.stopRecording(state.rec.current.id), next => {
+      state.rec.current = next; if (!active(next)) onRecordingEnded(next);
+    }, state.rec.current.id);
+  }
+  function startPlayback(rec) {
+    if (state.mutating || !rec.playback_available) return;
+    if (api.demo) { state.recordings.playing = rec.id; return; }
+    resetPlayer(); state.playback = null; state.recordings.playing = rec.id;
+    return mutate(state.recordings, () => api.startPlayback(rec.id), next => {
+      if (state.recordings.playing === rec.id) state.playback = next;
+    });
   }
 
-  async function startRecording() {
-    const r = state.rec;
-    if (r.pending || recording() || recordBlock()) return;
-    r.pending = true;
-    r.error = null;
-    r.last = null;
-    try {
-      r.current = await api.startRecording(session().id, api.newRequestId());
-      say('録画を開始しました。5分になると自動的に停止します。');
-    } catch (error) {
-      r.error = error.code;
-      noteError(error);
-      say(errorText(error.code)[0]);
-    } finally {
-      r.pending = false;
-      refresh();
+  // Both video elements keep their DOM identity through renders and tab changes.
+  // Only the visible target owns a player; lifecycle/generation changes destroy it.
+  function mediaTarget(kind) {
+    if (state.suspended || api.demo || offline()) return null;
+    if (kind === 'watch') {
+      const s = session();
+      if (state.tab !== 'watch' || state.watch.action || !active(s) || s.state !== 'running' || !['ready', 'completed'].includes(s.hls?.state) || !s.hls.url) return null;
+      return {key: `session:${s.id}:${state.mediaEpoch}`, url: s.hls.url, sessionId: s.id,
+        started_at: s.started_at, ts_started_at: s.ts_started_at, ready_at: s.hls.ready_at};
     }
+    const p = state.playback;
+    if (state.tab !== 'recordings' || !p || p.recording_id !== state.recordings.playing || !['ready', 'completed'].includes(p.state) || !p.url) return null;
+    return {key: `playback:${p.id}`, url: p.url, started_at: p.started_at, ready_at: p.ready_at};
   }
-
-  async function stopRecording() {
-    const r = state.rec;
-    if (r.pending || !recording()) return;
-    r.pending = true;
-    try {
-      const next = await api.stopRecording(r.current.id);
-      r.current = next;
-      if (next.state !== 'running') onRecordingEnded(next);
-    } catch (error) {
-      r.error = error.code;
-      noteError(error);
-    } finally {
-      r.pending = false;
-      refresh();
-    }
-  }
+  const MediaView = {
+    props: ['kind'],
+    setup(props) {
+      let video, player;
+      const stopWatch = Vue.watch(() => mediaTarget(props.kind), target => {
+        if (!player) return;
+        if (target) player.attach(target); else player.stop();
+      }, {flush: 'post'});
+      Vue.onMounted(() => {
+        player = SdrPlayer.create(video, event => {
+          const target = mediaTarget(props.kind);
+          if (!target || event.key !== target.key) return;
+          if (props.kind === 'watch') state.player = {...event, sessionId: target.sessionId};
+          else state.playbackPlayer = event;
+        });
+        const target = mediaTarget(props.kind); if (target) player.attach(target);
+      });
+      Vue.onBeforeUnmount(() => { stopWatch(); player?.destroy(); });
+      return () => el('video', {ref: node => { video = node; }, controls: true, playsinline: true,
+        preload: 'none', class: 'av-player', 'aria-label': props.kind === 'watch' ? '視聴プレイヤー' : '録画プレイヤー'});
+    },
+  };
 
   function changeScenario(id) {
     api.demo.setScenario(id);
@@ -608,16 +536,7 @@
     history.replaceState(null, '', `?${url}${location.hash}`);
   }
 
-  async function start() {
-    try {
-      await api.bootstrap();
-      markOnline();
-    } catch (error) {
-      noteError(error);
-    }
-    await Promise.all([loadServices(), loadRecordings()]);
-    await refresh();
-  }
+  async function start() { await refresh(); }
 
   // ---------- shared parts ----------
 
@@ -694,7 +613,7 @@
       el('div', {class: 'container header-row'},
         el('p', {class: 'brand'},
           el('span', {class: 'brand-title'}, 'SDR地上波テレビ'),
-          el('span', {class: 'demo-tag'}, 'デモ表示')),
+          el('span', {class: 'demo-tag'}, api.demo ? '画面だけのデモ' : 'API接続')),
         el('p', {class: 'now'}, el('span', {class: 'visually-hidden'}, '現在の状態：'), summary())),
       el('div', {class: 'container'},
         el('div', {class: 'tabs', role: 'tablist', 'aria-label': '画面の切り替え', onKeydown: onTabKey},
@@ -713,6 +632,8 @@
 
   function renderDemoBanner() {
     const demo = api.demo;
+    if (!demo) return notice('info', '合成TSを使う動作確認',
+      '自作のテスト映像と音声を再生・録画します。実機での受信は未対応です。受信や録画はボタンを押したときだけ開始します。');
     return el('section', {class: 'demo-banner', 'aria-labelledby': 'demo-title'},
       el('p', {class: 'demo-title', id: 'demo-title'}, '◆ 表示確認用のデモです'),
       el('p', null, '画面に出る局・映像・録画はすべて架空の模擬データです。受信・録画・ファイルの保存は行っていません。'),
@@ -731,6 +652,7 @@
 
   function renderGlobalNotices() {
     const list = [];
+    if (state.globalError) list.push(errorNotice(state.globalError));
     if (offline()) {
       list.push(notice('danger', 'サーバーと通信できません',
         `自動的に再接続を試みています。${state.conn.lastOkAt
@@ -744,7 +666,7 @@
     }
     if (storageLow()) {
       list.push(notice('warn', '保存先の空き容量が足りません',
-        `空き容量は約${bytes(state.system.storage.free_bytes)}です。受信と録画を始める前に、空き容量を増やしてください。`));
+        '接続の確認で保存先の空き容量を確認してください。正確な空き容量と録画可否は開始時にサーバーが判定します。'));
     }
     return list.length ? el('div', {class: 'global-notices'}, list) : null;
   }
@@ -762,6 +684,7 @@
         el('legend', null, '確認する入力元'),
         Object.entries(INPUT_KINDS).map(([kind, info]) => el('label', {class: 'radio'},
           el('input', {type: 'radio', name: 'diag-input', value: kind, checked: d.inputKind === kind,
+            disabled: !api.demo && kind === 'live' && !state.bootstrap?.live_available,
             onChange: () => { Object.assign(d, {inputKind: kind, result: null, phase: 'idle', error: null}); }}),
           info.long))),
       el('div', {class: 'actions'},
@@ -789,19 +712,19 @@
     const found = scan.found_services;
     const kept = '以前に保存した局の一覧はそのまま残しています。';
     if (scan.state === 'failed') {
-      return {tone: 'danger', title: 'スキャンを完了できませんでした', body: `理由：${END_REASONS[scan.end_reason] || '不明'}。${kept}受信ボードとアンテナの接続を確認してから、もう一度お試しください。`};
+      return {tone: 'danger', title: 'スキャンを完了できませんでした', body: `理由：${END_REASONS[scan.end_reason] || '不明'}。${kept}入力ファイルと接続診断の結果を確認してから、もう一度お試しください。`};
     }
     if (scan.state === 'interrupted') {
       return {tone: 'warn', title: 'サーバーの再起動でスキャンが中断されました', body: `${kept}もう一度スキャンしてください。`};
     }
     if (scan.end_reason === 'requested') {
-      return {tone: 'info', title: 'スキャンを中止しました', body: `${kept}中止までに見つかった${found}局は保存していません。`};
+      return {tone: 'info', title: 'スキャンを中止しました', body: `${kept}中止までに検出して保存した局も一覧へ反映します。`};
     }
     if (scan.end_reason === 'deadline') {
       return {tone: 'warn', title: '時間内にすべてのチャンネルを調べられませんでした', body: `スキャンは最大3分です。範囲を狭めて、もう一度お試しください。${kept}`};
     }
     if (!found) {
-      return {tone: 'warn', title: '局が見つかりませんでした', body: `${kept}受信ボードとアンテナの接続や範囲を確認してから、もう一度お試しください。`};
+      return {tone: 'warn', title: '局が見つかりませんでした', body: `${kept}入力ファイルとスキャンの範囲を確認してから、もう一度お試しください。`};
     }
     return {tone: 'ok', title: `スキャンが終わりました。${found}局を保存しました。`, body: '視聴タブで局を選ぶと受信を始めます。'};
   }
@@ -815,7 +738,7 @@
     const reason = running ? null : blockReason('scan');
     return el('section', {class: 'panel', 'aria-labelledby': 'scan-title'},
       el('h3', {id: 'scan-title'}, '2. 局を探す（スキャン）'),
-      el('p', null, '実機（SDRボード）で、指定した範囲のチャンネルから受信できる局を探します。最大3分で自動的に終了します。'),
+      el('p', null, '合成TSから局を探します。チャンネルは架空の割当てで、電波の検出ではありません。最大3分で終了します。'),
       blockNotice(reason),
       el('fieldset', {class: 'choice', disabled: running},
         el('legend', null, '調べる範囲'),
@@ -855,14 +778,14 @@
       found.length ? el('ul', {class: 'found-list', 'aria-label': 'このスキャンで見つかった局'},
         found.map(r => el('li', null,
           el('span', {class: 'ch'}, `物理${r.physical_channel}ch`),
-          el('span', null, r.services.map(s => stationName(s.name)).join('、'))))) : null,
+          el('span', null, r.services.map(s => stationName(serviceByRef(s.id)?.name || s.name)).join('、'))))) : null,
       tech('チャンネルごとの結果を表示', scan.results.map(r => [
         `物理${r.physical_channel}ch`, `${SCAN_STAGES[r.stage] || r.stage}${r.services.length ? `（${r.services.length}サービス）` : ''}`,
       ]).concat([['スキャンID', scan.id], ['状態（state / end_reason）', `${scan.state} / ${scan.end_reason || '—'}`]])));
   }
 
   function renderSavedStations() {
-    const live = state.services.items.filter(s => s.input_kind === 'live');
+    const live = state.services.items;
     const lastDetected = live.reduce((t, s) => (s.detected_at && s.detected_at > t ? s.detected_at : t), '');
     const reason = blockReason('tune');
     return el('section', {class: 'panel', 'aria-labelledby': 'saved-title'},
@@ -886,7 +809,7 @@
                 el('td', {'data-label': '物理チャンネル'}, `${s.physical_channel}ch`),
                 el('td', {'data-label': '確認できた段階'}, SCAN_STAGES[s.detection_stage] || s.detection_stage),
                 el('td', {'data-label': '操作'},
-                  button('視聴する', () => tune(s.id), {kind: 'secondary', disabled: Boolean(reason) || Boolean(state.watch.action)})))))),
+                  button('視聴する', () => tune(s.id), {kind: 'secondary', disabled: Boolean(reason) || Boolean(state.watch.action) || (!api.demo && s.input_kind === 'live' && !state.bootstrap?.live_available)})))))),
             tech('技術的な値を表示', live.map(s => [stationName(s.name), `service ID ${s.service_id}／物理${s.physical_channel}ch／${s.detection_stage}`])),
           ]);
   }
@@ -910,12 +833,18 @@
     if (s.health.cas === 'failed') return 'cas_failed';
     if (s.health.hls === 'failed') return 'hls_failed';
     if (s.health.hls !== 'ok') return 'hls_waiting';
+    if (state.player.phase === 'blocked') return 'autoplay_blocked';
+    if (state.player.phase === 'paused') return 'paused';
+    if (state.player.phase === 'buffering') return 'buffering';
     if (state.player.phase === 'failed') return 'player_failed';
     if (state.player.phase === 'showing') return 'showing';
     return 'player_preparing';
   }
 
   const PLAYER_TEXT = {
+    autoplay_blocked: ['自動再生が許可されませんでした', 'プレイヤーの再生ボタンを押してください。音声は自動で無効にしていません。'],
+    paused: ['一時停止中です', 'プレイヤーの再生ボタンで再開できます。'],
+    buffering: ['再生データを待っています', ''],
     idle: ['映像はここに表示します', '局の一覧から選ぶと受信を始めます。'],
     error: ['受信を開始できませんでした', '下の案内を確認してください。'],
     switching: ['前の受信を停止しています…', '停止が終わると、選んだ局の受信を始めます。'],
@@ -931,6 +860,11 @@
 
   function renderPlayer(phase) {
     const s = session();
+    if (!api.demo) {
+      const text = PLAYER_TEXT[phase];
+      return el('div', {class: 'media-box'}, h(MediaView, {kind: 'watch', key: 'watch-video'}),
+        text && phase !== 'showing' ? el('p', {class: 'hint', role: 'status'}, text.join('。')) : null);
+    }
     if (phase === 'showing') {
       return el('div', {class: 'player showing', role: 'img', 'aria-label': '合成表示のテストパターン。映像と音声は再生していません。'},
         el('div', {class: 'pattern', 'aria-hidden': 'true'}),
@@ -949,7 +883,7 @@
   function steps(phase) {
     const s = session();
     if (!s || !s.health) return null;
-    const player = phase === 'showing' ? 'synthetic' : phase === 'player_failed' ? 'failed'
+    const player = phase === 'showing' ? (api.demo ? 'synthetic' : 'ok') : phase === 'player_failed' ? 'failed'
       : ['cas_failed', 'hls_failed'].includes(phase) ? 'blocked' : 'waiting';
     const items = [
       ['電波の受信', s.health.signal],
@@ -972,7 +906,7 @@
     if (phase === 'error') return errorNotice(w.error);
     if (phase === 'cas_failed') {
       return notice('danger', 'カードによる復号に失敗しました',
-        '電波と番組データは受信できていますが、映像を表示できません。カードの差し込みと向きを確認し、受信を停止してから選局し直してください。録画は受信したままのデータとして保存できます。');
+        '入力の映像を復号できません。外部CASは未接続です。入力元と対応状況を確認してください。');
     }
     if (phase === 'hls_failed') {
       return notice('danger', '映像の変換に失敗しました',
@@ -981,7 +915,7 @@
     if (phase === 'player_failed') {
       return notice('danger', 'このブラウザーで再生できませんでした',
         '受信と映像の変換は動いています。「再生をやり直す」を押してください。続く場合は別のブラウザーでお試しください。',
-        [button('再生をやり直す', () => startPlayer(session().id), {kind: 'secondary'})]);
+        [button('再生をやり直す', resetPlayer, {kind: 'secondary'})]);
     }
     if (phase === 'ended') {
       const s = session();
@@ -1006,7 +940,7 @@
         el('p', {class: 'hint'}, '5分になるとサーバーが自動的に録画を停止します。画面を閉じても録画は期限で停止します。録画中は局の切り替えとスキャンはできません。'),
         el('div', {class: 'actions'}, button(r.pending ? '停止しています…' : '録画を停止する', stopRecording, {kind: 'danger', disabled: r.pending})),
       ] : [
-        el('p', {class: 'hint', id: 'rec-help'}, block || '受信中のデータをそのまま最大5分間保存します。5分になると自動的に停止します。'),
+        el('p', {class: 'hint', id: 'rec-help'}, block || '最大5分間保存します。入力の残量や保存先をサーバーが確認してから開始します。期限で自動停止します。'),
         el('div', {class: 'actions'}, button(r.pending ? '開始しています…' : '録画を開始する（最大5分）', startRecording,
           {kind: 'record', disabled: Boolean(block) || r.pending, describedby: 'rec-help'})),
       ],
@@ -1045,7 +979,7 @@
               type: 'button', class: ['station', selected ? 'selected' : null, g.kind === 'live' ? null : 'no-remote'],
               'aria-pressed': selected ? 'true' : 'false',
               'aria-label': label,
-              disabled: Boolean(reason) || busy, 'aria-describedby': reason ? 'picker-block' : undefined,
+              disabled: Boolean(reason) || busy || (!api.demo && s.input_kind === 'live' && !state.bootstrap?.live_available), 'aria-describedby': reason ? 'picker-block' : undefined,
               onClick: () => tune(s.id),
             },
             g.kind === 'live' ? el('span', {class: 'station-remote'}, s.remote_control_key ? `リモコン${s.remote_control_key}` : '番号なし') : null,
@@ -1075,22 +1009,22 @@
       el('div', {class: 'watch-grid'},
         // On narrow screens the station list comes first until a station is chosen.
         view.narrow && phase === 'idle' ? renderStationPicker() : null,
-        el('div', {class: 'watch-main'},
+        el('div', {class: 'watch-main', key: 'watch-main'},
           el('section', {class: 'panel', 'aria-labelledby': 'now-title'},
             el('div', {class: 'now-title-row'},
               el('h3', {id: 'now-title', class: ['now-title', target && !target.name ? 'unknown' : null]},
                 target ? stationName(target.name) : '局が選ばれていません'),
               target ? inputBadge(target.kind) : null),
             renderPlayer(phase),
-            phase === 'showing' ? el('p', {class: 'player-note'}, '表示確認用の合成表示です。実際の映像・音声の再生は、APIとの接続（#29）で確認します。') : null,
+            api.demo && phase === 'showing' ? el('p', {class: 'player-note'}, '画面だけの模擬デモです。映像・音声は再生していません。通常の画面へ戻ると合成TSを操作できます。') : null,
             phaseNotice(phase),
             s ? steps(phase) : null,
             active(s) && s.state === 'running' ? el('p', {class: 'meta'},
-              `受信は残り${clock(s.remaining_seconds)}で自動的に停止します（1回の受信は最大10分）。`) : null,
+              `期限までの残りは約${clock(s.remaining_seconds)}です（表示用の推定）。入力ファイルが終わると先に停止します。`) : null,
             s ? el('div', {class: 'actions'},
               w.confirmStop ? el('div', {class: 'confirm', role: 'group', 'aria-label': '受信停止の確認',
                 onKeydown: e => { if (e.key === 'Escape') cancelStop(); }},
-                el('p', null, '録画中です。受信を停止すると録画も停止します。'),
+                el('p', null, '録画中です。受信を停止すると録画は途中終了になり、再生・ダウンロードできません。'),
                 button('録画と受信を停止する', stopReceiving, {kind: 'danger', ref: node => { refs.confirmStop = node; }}),
                 button('キャンセル', cancelStop, {kind: 'secondary'}))
                 : button(phase === 'stopping' ? '停止しています…' : '受信を停止する', stopReceiving,
@@ -1101,6 +1035,10 @@
               ['service ID', s.service_id],
               ['受信したデータ量', bytes(s.bytes_received)],
               ['開始時刻', when(s.started_at)],
+              ['最初のTS', s.ts_started_at], ['HLS準備完了', s.hls?.ready_at],
+              ['最初のplayingイベント', state.player.observation?.playing_at],
+              ['プレイヤーの経路', state.player.observation?.route],
+              ['HLSの失敗段階と理由', s.hls?.error_code ? `${s.hls.error_stage} / ${s.hls.error_code}` : null],
               ['自動停止の予定時刻', when(s.deadline_at)],
               ['状態（state / stage）', `${s.state} / ${s.stage}`],
               ['終了理由（end_reason）', s.end_reason],
@@ -1115,33 +1053,35 @@
   // ---------- tab 3: recordings ----------
 
   function recStatus(r) {
+    if (r.state === 'completed' && !api.demo && !r.file_available) return chip('warn', '!', 'ファイルがありません');
     if (r.state === 'running') return chip('rec', '●', '録画中');
     if (r.state === 'interrupted') return chip('warn', '!', '中断（途中まで）');
     if (r.partial || r.state === 'failed') return chip('warn', '!', '途中で終了');
-    return chip('ok', '✓', '完了');
+    return r.state === 'completed' ? chip('ok', '✓', '完了') : chip('warn', '…', '未完了');
   }
 
   function renderPlayback() {
     const id = state.recordings.playing;
     const r = state.recordings.items.find(x => x.id === id);
-    if (!r) return null;
-    return el('section', {class: 'panel playback', 'aria-labelledby': 'playback-title'},
-      el('div', {class: 'now-title-row'},
-        el('h3', {id: 'playback-title', tabindex: '-1', ref: node => { refs.playback = node; }}, `録画の再生：${stationName(r.service_name)}`),
-        inputBadge(r.input_kind)),
-      el('div', {class: 'player showing', role: 'img', 'aria-label': '合成表示のテストパターン。録画は再生していません。'},
-        el('div', {class: 'pattern', 'aria-hidden': 'true'}),
-        el('div', {class: 'player-caption', 'aria-hidden': 'true'}, el('strong', null, '合成表示'), el('span', null, '録画は再生していません'))),
-      el('p', {class: 'player-note'}, '表示確認用の合成表示です。録画の再生は、APIとの接続（#29）で確認します。再生には別に作った再生用のファイルを使い、受信したままのファイルは変更しません。'),
-      el('div', {class: 'actions'}, button('再生を閉じる', () => {
-        state.recordings.playing = null;
-        nextTick(() => refs[`play-${id}`] && refs[`play-${id}`].focus());
-      }, {kind: 'secondary'})));
+    const p = state.playback;
+    return el('section', {class: 'panel playback', hidden: !id, 'aria-labelledby': 'playback-title'},
+      el('h3', {id: 'playback-title'}, `録画の再生：${stationName(r?.service_name)}`),
+      api.demo ? el('p', null, '画面だけのデモです。映像・音声は再生しません。')
+        : h(MediaView, {kind: 'playback', key: 'playback-video'}),
+      errorNotice(state.recordings.error),
+      p?.state === 'failed' || p?.state === 'interrupted'
+        ? notice('danger', '録画の再生用ファイルを作れませんでした',
+          `段階：${p.error_stage || '不明'}、理由：${p.error_code || p.state}。録画そのものの状態とは別です。自動では再試行しません。`)
+        : !p?.url && !api.demo ? el('p', {role: 'status'}, '録画の再生を準備しています…') : null,
+      state.playbackPlayer.phase === 'blocked' ? el('p', {role: 'status'}, '自動再生が許可されませんでした。プレイヤーの再生ボタンを押してください。') : null,
+      state.playbackPlayer.phase === 'failed' ? notice('danger', 'ブラウザーで録画を再生できませんでした', '録画そのものの失敗ではありません。') : null,
+      button('再生を閉じる', () => { state.recordings.playing = null; state.playback = null; resetPlayer(); }, {kind: 'secondary'}));
   }
 
   function renderRecordingsTab() {
     const list = state.recordings;
     return [
+      !list.playing ? errorNotice(list.error) : null,
       heading('recordings', '録画'),
       el('p', {class: 'lead'}, '録画の一覧です。受信したままのデータ（TSファイル）を保存しています。'),
       renderPlayback(),
@@ -1165,18 +1105,15 @@
                 el('span', null, `長さ ${clock(r.elapsed_seconds)}`),
                 el('span', null, bytes(r.size_bytes)),
                 inputBadge(r.input_kind)),
-              r.state === 'running' ? el('p', {class: 'hint'}, `録画中です。残り${clock(r.remaining_seconds)}で自動的に停止します。`)
+              r.state === 'completed' && !api.demo && !r.file_available ? el('p', {class: 'hint'}, '完了の記録はありますが、ファイルがないため再生・ダウンロードできません。') : r.state === 'running' ? el('p', {class: 'hint'}, `録画中です。残り${clock(r.remaining_seconds)}で自動的に停止します。`)
                 : el('p', {class: 'hint'}, partial
-                  ? `${reason || '不明な理由'}のため途中で終了しました。途中までのデータは再生・ダウンロードの対象外です（仮の動作）。`
+                  ? `${reason || '不明な理由'}のため途中で終了しました。途中までのデータは再生・ダウンロードの対象外です。`
                   : `${reason || '終了'}。`),
               el('div', {class: 'actions'},
-                button('再生する', () => {
-                  list.playing = r.id;
-                  nextTick(() => refs.playback && refs.playback.focus());
-                }, {kind: 'secondary', disabled: !r.playback_available, ref: node => { refs[`play-${r.id}`] = node; }}),
-                button('TSファイルをダウンロード', () => {
-                  list.notice = '表示確認用のデモのため、ファイルはダウンロードしません。';
-                }, {kind: 'secondary', disabled: !r.download_available})),
+                button('再生する', () => startPlayback(r), {kind: 'secondary', disabled: !r.playback_available || state.mutating || offline()}),
+                r.download_available && !api.demo
+                  ? el('a', {class: 'btn btn-secondary', href: r.download_url, download: ''}, 'TSファイルをダウンロード')
+                  : button('TSファイルをダウンロード', () => { list.notice = '画面だけのデモのため、ダウンロードしません。'; }, {kind: 'secondary', disabled: !r.download_available})),
               tech('技術的な値を表示', [
                 ['録画ID', r.id], ['受信セッションID', r.session_id], ['物理チャンネル', r.physical_channel ? `${r.physical_channel}ch` : '—'],
                 ['状態（state / end_reason）', `${r.state} / ${r.end_reason || '—'}`], ['途中終了（partial）', r.partial ? 'はい' : 'いいえ'],
@@ -1198,7 +1135,10 @@
       window.addEventListener('pagehide', () => {
         pageHidden = true;
         clearTimeout(timer);
-        clearTimeout(playerTimer);
+        epoch += 1; api.cancel(); state.suspended = true; resetPlayer();
+        state.mutating = false; state.watch.action = null;
+        state.scan.pending = false; state.rec.pending = false;
+        if (state.diag.phase === 'running') state.diag.phase = 'idle';
       });
       window.addEventListener('pageshow', event => {
         pageHidden = false;
@@ -1217,8 +1157,7 @@
           TABS.map(tab => el('div', {
             id: `panel-${tab.id}`, role: 'tabpanel', 'aria-labelledby': `tab-${tab.id}`,
             hidden: state.tab !== tab.id, class: 'tabpanel',
-          }, state.tab !== tab.id ? null
-            : tab.id === 'scan' ? renderScanTab() : tab.id === 'watch' ? renderWatchTab() : renderRecordingsTab()))),
+          }, tab.id === 'scan' ? renderScanTab() : tab.id === 'watch' ? renderWatchTab() : renderRecordingsTab()))),
         el('footer', {class: 'container footer'},
           el('p', null, 'SDR DTV PoC — 実験的なOpen Source PoCです。対応する機器・環境は検証済みの範囲に限られます。'),
           el('p', null, el('a', {href: '/openapi.json'}, 'APIの仕様（OpenAPI）'), '　',
