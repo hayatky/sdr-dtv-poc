@@ -16,18 +16,23 @@
       if (key === target.key && !forceHls) return;
       stop(); key = target.key;
       const own = generation;
+      let failed = false;
       const valid = () => generation === own && key === target.key;
       observation = {key, session_id: target.sessionId || null, started_at: target.started_at || null,
         ts_started_at: target.ts_started_at || null, ready_at: target.ready_at || null,
         playing_at: null, samples: [], route: null, native_unsupported: forceHls};
-      const emit = (phase, error = null) => { if (valid()) report({phase, error, key, observation}); };
+      const emit = (phase, error = null) => {
+        if (!valid() || failed) return;
+        if (phase === 'failed') failed = true;
+        report({phase, error, key, observation});
+      };
       function listen(name, fn) {
         const handler = () => { if (valid()) fn(); };
         video.addEventListener(name, handler);
         remove.push(() => video.removeEventListener(name, handler));
       }
       async function play() {
-        if (!valid()) return;
+        if (!valid() || failed) return;
         try { await video.play(); }
         catch (error) {
           if (!valid()) return;

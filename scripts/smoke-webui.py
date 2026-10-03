@@ -322,9 +322,16 @@ def faults(page: Any, context: Any, server: Server) -> dict[str, Any]:
         )
         == 0
     )
+    expect(page.get_by_text("サーバーと通信できません", exact=True)).to_have_count(0)
+    # A stop accepted by the server with a lost response also reconciles by ID.
+    lost.clear()
+    page.route("**/api/sessions/*/stop", drop_response)
     click(page, "受信を停止する")
     wait_read(page, origin + "/api/sessions", lambda xs: all(x["state"] in TERMINAL for x in xs))
-    page.wait_for_timeout(1300)
+    page.wait_for_timeout(1500)
+    page.unroute("**/api/sessions/*/stop", drop_response)
+    assert len(lost) == 1
+    expect(page.get_by_text("サーバーと通信できません", exact=True)).to_have_count(0)
     page.locator(".station").filter(has_text="Synthetic Test 13").click()
     sessions = wait_read(
         page, origin + "/api/sessions", lambda xs: any(x["state"] == "running" for x in xs)

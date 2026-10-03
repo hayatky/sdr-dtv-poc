@@ -90,6 +90,9 @@ async () => {
     assert(events.length === before, 'old HLS event must not replace current state');
     instances[1].events.error(null,{fatal:true,type:'mediaError'});
     assert(events.at(-1).phase === 'failed' && instances[1].stopped, 'fatal player error stops fetching');
+    for (const name of ['waiting', 'pause', 'playing', 'ended']) media.dispatchEvent(new Event(name));
+    await tick();
+    assert(events.at(-1).phase === 'failed', 'fatal failure must survive later media events and promises');
     hlsPlayer.destroy();
     assert(instances[1].destroyed && !media.src, 'destroy releases HLS and source');
     return {transport: 'passed', native_lifecycle_stub: 'passed', hls_lifecycle_stub: 'passed'};

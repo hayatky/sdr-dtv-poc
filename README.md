@@ -9,7 +9,8 @@ WebUIから診断、合成13・14chのスキャン、保存した局の選局、
 [Issue #29の実装と引継ぎ](docs/issue-29-handoff.md)、
 [UI接続の検証記録](docs/issue-29-validation.md)を参照してください。
 全体の進捗は[Issue #2](https://github.com/hayatky/sdr-dtv-poc/issues/2)で管理します。
-全体の異常経路は#19、実機での受信・録画・ブラウザー確認は#21〜#23で確認します。
+次は段階3の#5です。[着手手順と残る作業](docs/issue-5-handoff.md)に従い、
+まず#19の合成入力による全体検証と#20の先行成果の照合を進めます。
 
 ## Docker Composeで合成デモを起動
 

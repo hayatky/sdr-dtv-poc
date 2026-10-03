@@ -81,6 +81,7 @@
         const value = await post(path, {...input, request_id: id});
         delete uncertain[key]; save(); return value;
       } catch (error) {
+        error.requestId = id;
         if (error.status >= 400 && error.status < 500 && error.status !== 403) { delete uncertain[key]; save(); }
         throw error;
       }
@@ -102,6 +103,8 @@
         const s = current(sessions), sc = current(scans), r = current(recordings);
         return {session: s && sessionView(s), scan: sc && scanView(sc), recording: r && recordingView(r),
           recordings: recordings.map(recordingView),
+          observedRequestIds: [...resolved],
+          stoppedIds: [...sessions, ...scans, ...recordings].filter(item => !active(item)).map(item => item.id),
           // Global restoration/storage gates are not exposed by these endpoints.
           restore: null, storage: null};
       },

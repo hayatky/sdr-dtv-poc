@@ -350,6 +350,15 @@
       applySession(status.session);
       state.scan.current = status.scan;
       state.rec.current = status.recording;
+      for (const target of [state.watch, state.scan, state.rec]) {
+        const recovery = target.recovery;
+        if (target.error === 'network_error' && recovery &&
+            (recovery.requestId ? status.observedRequestIds?.includes(recovery.requestId) :
+              status.stoppedIds?.includes(recovery.stoppedId))) {
+          target.error = null; target.recovery = null;
+          say("サーバーから操作の結果を確認しました。");
+        }
+      }
       if (active(previousScan) && !active(status.scan) && status.scan) say(scanResult(status.scan).title);
       if (active(previousRec) && !active(status.recording) && status.recording) onRecordingEnded(status.recording);
       // A recovered page only reads the selected playback job; never POSTs it.
@@ -376,17 +385,21 @@
     state.rec.last = rec;
     say(rec.state === 'completed' && !rec.partial ? '録画を保存しました。' : '録画が途中で終了しました。');
   }
-  async function mutate(target, action, apply) {
+  async function mutate(target, action, apply, stoppedId = null) {
     if (state.mutating || pageHidden) return;
     const own = ++epoch;
-    state.mutating = true; target.pending = true; target.error = null;
+    state.mutating = true; target.pending = true; target.error = null; target.recovery = null;
     clearTimeout(timer); api.cancel();
     if (state.diag.phase === 'running') state.diag.phase = 'idle';
     try {
       const result = await action();
       if (valid(own)) { apply(result); state.globalError = null; }
     } catch (error) {
-      if (valid(own)) { target.error = error.code; noteError(error); say(errorText(error.code)[0]); }
+      if (valid(own)) {
+        target.error = error.code;
+        if (error.code === 'network_error') target.recovery = {requestId: error.requestId, stoppedId};
+        noteError(error); say(errorText(error.code)[0]);
+      }
     } finally {
       if (own === epoch) {
         state.mutating = false; target.pending = false; state.watch.action = null;
@@ -414,7 +427,7 @@
   }
   function stopScan() {
     if (!state.scan.current) return;
-    return mutate(state.scan, () => api.stopScan(state.scan.current.id), next => { state.scan.current = next; });
+    return mutate(state.scan, () => api.stopScan(state.scan.current.id), next => { state.scan.current = next; }, state.scan.current.id);
   }
   function tune(ref) {
     if (blockReason('tune')) return;
@@ -436,7 +449,7 @@
       w.confirmStop = true; nextTick(() => refs.confirmStop?.focus()); return;
     }
     w.confirmStop = false; w.action = 'stopping'; resetPlayer();
-    return mutate(w, () => api.stopSession(w.session.id), applySession);
+    return mutate(w, () => api.stopSession(w.session.id), applySession, w.session.id);
   }
   function cancelStop() {
     state.watch.confirmStop = false; nextTick(() => refs.stopButton?.focus());
@@ -450,7 +463,7 @@
     if (!recording()) return;
     return mutate(state.rec, () => api.stopRecording(state.rec.current.id), next => {
       state.rec.current = next; if (!active(next)) onRecordingEnded(next);
-    });
+    }, state.rec.current.id);
   }
   function startPlayback(rec) {
     if (state.mutating || !rec.playback_available) return;
