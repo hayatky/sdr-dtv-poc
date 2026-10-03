@@ -2,7 +2,8 @@
 
 本書は段階1・PR #30時点の検証記録です。8秒デモや当時の未実装APIの記載は履歴として保持します。
 現在の機能は[API仕様](api.md)、後続の実装・検証は[段階2の記録](issue-4-backend-validation.md)、
-現在の作業入口は[#29への引継ぎ](issue-29-handoff.md)を参照してください。
+API・HLS接続の結果は[WebUIの検証記録](issue-29-validation.md)、
+現在の作業入口は[#5への引継ぎ](issue-5-handoff.md)を参照してください。
 
 確認日: 2026-10-04（日本時間）。対象: PR #1を統合したmain
 `ef240803845cdad23c3f76216bdc5e7c7b2fccef`からの本PRの変更。
