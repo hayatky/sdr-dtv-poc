@@ -48,3 +48,8 @@ hls.jsの元配布物のLICENSEとApache-2.0全文も同じディレクトリに
 
 OSのFFmpeg・GNU Radioと研究元は[THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md)と
 [受信処理](receiver.md)を参照してください。ソース提供が必要なbinary/imageは今回配布しません。
+
+段階2の実行依存は追加していません。FFmpegの既存ビルドでlibx264とAACを使用します。
+任意のブラウザー検証にだけ[Playwright Python 1.58.0](https://github.com/microsoft/playwright-python)
+を一時環境で使いました。distributionのLicense-Expressionと同梱LICENSEはApache-2.0です。
+アプリのlockfile・イメージへ追加せず、ブラウザーや検証用バイナリも本リポジトリから配布しません。
