@@ -16,9 +16,11 @@ from sdr_dtv_poc.device_lock import DeviceBusy, DeviceLock
 from sdr_dtv_poc.manager import Conflict, Manager
 from sdr_dtv_poc.media import Media
 from sdr_dtv_poc.models import (
+    Artifact,
     EndReason,
     InputKind,
     MediaStatus,
+    Playback,
     RecordingStart,
     Restore,
     ScanStart,
@@ -439,7 +441,7 @@ def test_stop_timeout_blocks_restart(settings: Settings, monkeypatch: pytest.Mon
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("failure", ["partial", "missing", "codec", "deadline"])
+@pytest.mark.parametrize("failure", ["partial", "missing", "codec", "deadline", "database"])
 def test_playback_failure_does_not_change_recording(
     settings: Settings, monkeypatch: pytest.MonkeyPatch, failure: str
 ) -> None:
@@ -475,13 +477,28 @@ def test_playback_failure_does_not_change_recording(
                 with pytest.raises(Conflict, match="recording_file_missing"):
                     m.recordings.start_playback(record.id)
                 return
-            if failure == "deadline":
+            if failure in {"deadline", "database"}:
                 monkeypatch.setattr("sdr_dtv_poc.recording.PLAYBACK_LIMIT", 0.02)
 
                 async def stalled(self: Media) -> None:
+                    if failure == "database":
+                        self.artifact = Artifact(
+                            id=uuid4(),
+                            session_id=self.owner,
+                            kind="hls",
+                            media_type="application/vnd.apple.mpegurl",
+                            size_bytes=0,
+                            sha256="",
+                        )
                     await asyncio.sleep(10)
 
                 monkeypatch.setattr(Media, "start", stalled)
+            if failure == "database":
+
+                def unavailable(artifact: Artifact) -> None:
+                    raise sqlite3.OperationalError("simulated write failure")
+
+                monkeypatch.setattr(m.store, "update_artifact", unavailable)
             playback = m.recordings.start_playback(record.id)
             assert m.recordings.start_playback(record.id) is playback
             assert m.recordings.playback_task
@@ -489,6 +506,12 @@ def test_playback_failure_does_not_change_recording(
             assert playback.state == "failed" and playback.url is None
             if failure == "deadline":
                 assert playback.error_code == "playback_deadline"
+            if failure == "database":
+                assert playback.error_code == "database_error"
+                assert playback.error_stage == "storage" and playback.ended_at
+                assert m.storage_failed and m.recordings.media is None
+                saved = Playback.model_validate_json(m.store.records("playbacks")[0][0])
+                assert saved.ended_at == playback.ended_at and saved.error_code == "database_error"
             assert record.state == State.completed and not record.partial
             assert original.read_bytes() == before and calls == 1
         finally:

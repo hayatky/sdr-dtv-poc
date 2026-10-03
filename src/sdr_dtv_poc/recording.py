@@ -313,14 +313,19 @@ class Recordings:
         except Exception:
             media.fail("playback_failed", "conversion")
         finally:
-            await media.close()
+            try:
+                await media.close()
+            except sqlite3.Error:
+                m.storage_failed = True
+                playback.state, playback.error_code = "failed", "database_error"
+                playback.error_stage, playback.url = "storage", None
             playback.ended_at = timestamp()
             try:
                 changed()
             except sqlite3.Error:
                 m.storage_failed = True
                 playback.state, playback.error_code = "failed", "database_error"
-                playback.url = None
+                playback.error_stage, playback.url = "storage", None
             self.media = None
 
     async def close(self) -> None:
