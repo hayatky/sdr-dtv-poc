@@ -1,7 +1,7 @@
 # sdr-dtv-poc
 
 日本の地上波をSDRで受信し、WebUIからスキャン・選局・視聴・短いTS録画を行う
-実験的なPoCです。現在は**合成TSを使うAPIとWebUIの接続**を実装しています。
+実験的なPoCです。段階2まで完了し、**合成TSを使うAPIとWebUIの接続**を実装済みです。
 WebUIから診断、合成13・14chのスキャン、保存した局の選局、HLSの視聴、最大300秒の
 手動TS録画、録画の再生とオリジナルTSのダウンロードを操作できます。
 実機入力と外部CASは未接続です。合成TSの成功を実機での受信成功とは扱いません。
@@ -9,8 +9,10 @@ WebUIから診断、合成13・14chのスキャン、保存した局の選局、
 [Issue #29の実装と引継ぎ](docs/issue-29-handoff.md)、
 [UI接続の検証記録](docs/issue-29-validation.md)を参照してください。
 全体の進捗は[Issue #2](https://github.com/hayatky/sdr-dtv-poc/issues/2)で管理します。
-次は段階3の#5です。[着手手順と残る作業](docs/issue-5-handoff.md)に従い、
-まず#19の合成入力による全体検証と#20の先行成果の照合を進めます。
+PR #34はmainの`dd60fb2`へ統合済みで、#4・#18・#29は完了しました。
+次は[段階3のIssue #5](https://github.com/hayatky/sdr-dtv-poc/issues/5)です。
+[着手手順と残る作業](docs/issue-5-handoff.md)に従い、まず#19の合成入力による全体検証と
+#20の先行成果の照合を進めます。実機での検証は、この二つの成果を確認してから開始します。
 
 ## Docker Composeで合成デモを起動
 

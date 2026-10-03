@@ -4,7 +4,8 @@
 通常のWebUIを実APIへ接続し、既存の三つのタブで合成入力を操作します。
 変更と検証の詳細は[検証記録](issue-29-validation.md)、APIの基準は
 [API仕様](api.md)、`models.py`、起動したアプリの`/openapi.json`です。
-PR #34のレビュー・統合後は[#5への引継ぎ](issue-5-handoff.md)から進めてください。
+PR #34はmainの`dd60fb2`へ統合済みで、#29・#18・#4は完了しました。
+次は[#5への引継ぎ](issue-5-handoff.md)から進めてください。
 
 ## 接続したもの
 
