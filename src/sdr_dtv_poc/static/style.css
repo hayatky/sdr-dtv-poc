@@ -524,3 +524,7 @@ table.stations .btn { white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
+
+/* Real media stays in the same DOM node across state updates. */
+.av-player { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+[hidden] { display: none !important; }

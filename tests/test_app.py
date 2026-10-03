@@ -60,7 +60,7 @@ def terminal(client: TestClient, session_id: str) -> dict[str, Any]:
 def test_eof_artifact_and_restart(settings: Settings) -> None:
     with TestClient(create_app(settings), base_url=ORIGIN) as client:
         assert client.get("/").status_code == 200
-        for name in ("app.js", "api.js", "mock.js"):
+        for name in ("app.js", "api.js", "mock.js", "player.js"):
             script = client.get(f"/static/{name}")
             assert script.headers["content-type"].startswith("text/javascript")
             assert "innerHTML" not in script.text and "v-html" not in script.text

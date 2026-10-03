@@ -38,7 +38,7 @@ sh scripts/check.sh
 `pyproject.toml`のdevグループにRuff、mypy、pytestをまとめています。
 HTTPXはAPIテストと同時に追加しました。FastAPI・Pydantic・Uvicornを実行依存として
 `uv.lock`で管理します。API・合成TSアダプター・Compose起動は実装済みです。
-合成/保存TSからのHLS生成・録画・再生も実装済みです。実機入力・WebUI接続は後続Issueです。起動はREADME、接点は
+合成/保存TSからのHLS生成・録画・再生も実装済みです。WebUIは合成入力のAPI・HLSへ接続済みで、実機入力は後続Issueです。起動はREADME、接点は
 [API仕様](api.md)、固定native環境は[受信処理](receiver.md)を参照してください。
 
 ## 日常のコマンド
@@ -150,3 +150,14 @@ uv run --no-project --python 3.12 --with playwright==1.58.0 \
 ブラウザー検証はAPIの専用保存先を使い、録画と再生用派生物を作ります。ffprobe・ffmpegの
 ログ全文は公開せず、検査スクリプトは成功の指標または失敗理由の分類を出力します。
 通常のpytestはFFmpeg/Chromiumの導入成功を意味しません。補助検証を別に実施してください。
+
+## WebUI経由の検証（#29）
+
+`scripts/smoke-webui.py`は実画面のボタンをChromiumで操作します。
+専用APIを起動し、終了時には自分が起動したプロセスだけを停止します。
+既存の保存先を拒否し、検証で作った録画は削除しません。
+起動中の別API・他担当のCompose project・volumeは使いません。
+合成入力の生成・実行例・確認範囲は[検証記録](issue-29-validation.md)を参照してください。
+`tests/webui-lifecycle.js`の通信・プレイヤーの回帰試験もこのスクリプトがChromium内で実行します。
+Playwrightは補助ツールとして一時環境で使い、製品依存やコンテナへ追加しません。
+通常の`sh scripts/check.sh`はChromiumを起動しないため、この結果とは別に記録してください。

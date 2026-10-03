@@ -1,74 +1,64 @@
-# Issue #29: WebUIを実API・HLSへ接続するための引継ぎ
+# Issue #29: WebUIのAPI・HLS接続と引継ぎ
 
-更新日: 2026-10-04（日本時間）。対象はPR #31の段階2バックエンドとPR #32のWebUIです。
-PR #31・#32はmainの`a90eedc`までに統合済みで、先行Issue #28・#14・#17も完了しています。
-最新のmainから作業を始め、開始前にstatus・HEAD・remote・既存変更を確認してください。
-本書とAPI仕様を先に読み、画面設計内の仮のJSONを実APIの応答とは扱わないでください。
+更新日: 2026-10-04（日本時間）。作業元はmain `b8e9259`です。
+通常のWebUIを実APIへ接続し、既存の三つのタブで合成入力を操作します。
+変更と検証の詳細は[検証記録](issue-29-validation.md)、APIの基準は
+[API仕様](api.md)、`models.py`、起動したアプリの`/openapi.json`です。
+PRの作成だけで#29・#18・#4の完了判定やマージは行いません。
 
-## 達成済みの範囲と担当
+## 接続したもの
 
-- #13〜#17: 合成TSのスキャン、保存サービスからの選局、供給中HLS、最大300秒の録画、
-  一覧・ダウンロード・派生HLS再生。根拠は[バックエンド検証記録](issue-4-backend-validation.md)。
-- #27・#28: 三つのタブ、状態・失敗の案内、模擬データによる操作。
-  根拠は[画面設計と検証記録](webui-design.md)。今の画面はAPIを呼ばず、A/Vも再生しません。
-- #29: `static/api.js`のHTTP実装、`static/player.js`、`static/app.js`の状態反映と画面操作の確認。
-  新規JSの配信には`app.py`の`UI_FILES`への追加が必要です。
-- #18・#4は未完了です。全体の異常経路は#19、実機での受信・300秒録画は#21・#22、
-  実機を使ったブラウザー確認は#23へ引き継ぎます。live入力は501、外部CASは未接続です。
+- `static/api.js`: 同一OriginのHTTP通信、bootstrapとCSRF、一覧からの状態取得、
+  診断・スキャン・選局・録画・再生。通常はHTTP、`?mode=mock`だけ画面用の模擬データです。
+  通信失敗時の自動切替はありません。結果不明の開始要求は同じ操作のrequest_idを保持し、
+  明示的な再送に使います。状態取得でrequest_idを確認できた場合は保留を解消します。
+- `static/app.js`: 保存したServiceの`id`を`service_key`へ渡し、選局では600秒・HLS有効を明示します。
+  スキャンは`input_kind:synthetic`、初期範囲はbootstrapの合成プリセットです。
+  局名・番号・Serviceがnullの場合は不明として扱い、推測しません。
+- `static/player.js`: 安定したvideo要素に標準HLS、または同梱hls.jsを接続します。
+  標準HLSを対応と申告しても実際に非対応エラーを返す環境では、一度だけhls.jsへ切り替えます。
+  自動再生拒否は手動の再生ボタンへ案内し、音声を自動的に無効にしません。
+- `app.py`: `player.js`だけを既存の`UI_FILES`へ追加しました。API・モデル・CSPは変更していません。
+  任意ファイルの配信、Node.js/npm、ビルド、実行時CDN、新しい製品依存は追加していません。
 
-Node.js/npm・ビルド・CDNは追加せず、同梱Vue 3.5.22とhls.js 1.6.13を使います。
-受信処理の複製・実機操作・Actions有効化はこの接続作業に含めません。
+## 状態と終了処理
 
-## 仮のUI応答と実APIの対応
+一覧APIを使うため、`GET /api/status`は追加していません。api.js内の`status()`はHTTPの
+エンドポイント名ではなく、sessions/scans/recordingsをまとめる画面用の関数です。
+従来の画面項目への変換はこの境界で行います。`health`や`remaining_seconds`を
+サーバーが返すフィールドとして扱わないでください。
 
-実装の基準は[API仕様](api.md)、`models.py`、起動したアプリの`/openapi.json`です。
+- Sessionの残り時間は`deadline_at`と端末の時計から計算した表示用の推定です。
+  ファイルの実残量や停止制御には使いません。録画開始可否はサーバーが判定します。
+- 全体の復元ゲートや正確な空き容量を一覧だけから正常と断定しません。
+  観測した復元失敗・診断の保存先異常を表示し、POSTの`restore_unverified`・
+  `insufficient_session_time`・`storage_full`・競合等も案内します。
+- スキャンは中止・失敗を含め、一覧の再取得で保存された局を反映します。
+  保存済みの観測を現在のRF受信成功とは表示しません。
+- 選局のPOSTはバックエンドが旧sessionの停止・回収を待ちます。画面は切替中に旧映像を解放します。
+  操作世代・対象IDを照合し、古い応答・HLSイベント・playのPromiseを現在の表示へ適用しません。
+- タブ切替・受信停止・再生対象の変更・pagehideでプレイヤーを破棄し、イベント・取得・タイマーを終了します。
+  video要素自体は画面更新ごとに作り直しません。ページ復帰は状態取得から再開します。
+- 読取りのポーリングは一つだけです。pagehide後に古いfinallyから再開しません。
+  再読込・通信復旧・別タブを開く操作は一覧取得だけで、受信・スキャン・録画を自動開始しません。
+- 403ではbootstrapと現在の状態を再取得します。拒否された変更要求を自動で再実行しません。
 
-| 現在のUIの仮定 | 実APIと接続時の対応 |
-|---|---|
-| `GET /api/status` | 未実装。sessions/scans/recordingsの一覧から動作中IDを取得可能。復元ゲート全体・保存先の正確な空き容量・サーバーが判定する残り入力時間は一覧だけでは得られない。下記の扱いを確認する |
-| 選局の`service_ref` | `POST /api/sessions`へServiceの`id`を`service_key`として送る。`duration_seconds:600, enable_hls:true`を明示する（省略時は60秒） |
-| Sessionの`service_name/physical_channel/service_ref` | `session.service.name/physical_channel/id`。直接入力で開始した場合はserviceがnull。放送の整数IDは`selected_service_id` |
-| `health.signal/ts/cas/hls` | 同じ集約項目はない。`stage`・`bytes_received/ts_started_at`・`hls.state/error_stage/error_code`で判定し、RFやカードの未確認を正常と推定しない |
-| `remaining_seconds` | Sessionでは未提供。`deadline_at`からの表示は推定に限り、ファイルの残量不足は`insufficient_session_time`で案内。UIの時計を停止制御に使わない |
-| Serviceの`remote_control_key` | `remote_control_key_id`。取得できない値はnull。`detected_at`と`current_reception:false`は保存した過去の観測 |
-| Scanの`done_channels/found_services/saved` | `completed_channels/total_channels`、results内の`service_ids`。`saved`はない。中止・未検出・失敗を含む終了時にサービス一覧を再取得する。検出した局は順次保存される |
-| スキャン結果の`stage/services` | `state: not_run/not_detected/detected`と`service_ids`。局の詳細は`GET /api/services`で解決する |
-| スキャン入力 | `input_kind:synthetic`を明示し、bootstrapの`scan_presets.synthetic`（13・14）を初期候補にする。live・saved_tsの範囲スキャンは未対応 |
-| Recordingの`service_name/service_id/size_bytes` | `service.name`、`selected_service_id`、`bytes_written`。serviceはnullの場合もある |
-| `playback_available/download_available` | `state=completed`、`partial=false`、`file_available`、`download_url`を照合。partialや欠損のダウンロード・再生は409 |
-| 録画中の受信停止 | 録画は`failed/partial/source_ended`。録画だけの手動停止は`completed/requested`。先に受信を止めた結果を正常録画と表示しない |
-| 録画の再生 | CSRF付きPOST `/api/recordings/{id}/playback`で開始し、GETで状態取得。Playbackの`url`を使用。失敗でも元のRecordingの状態を変えない |
-| 仮の`recording_active/scan_active/recording_time_insufficient` | 実APIは`recording_busy/scan_busy/insufficient_session_time`。`device_busy`、`restore_unverified`、`playback_busy`、`storage_full`等もAPI仕様に従う |
+## 録画・再生
 
-全体状態APIを追加する場合は、Managerが持つ動作中ID・復元ゲート・保存先異常と、
-サーバーが判定する残り時間だけを返す小さな読み取りAPIとしてバックエンド担当へ提案してください。
-現行APIだけで進める場合は、一覧とdiagnosticsで判明する範囲だけを表示し、
-復元未確認や録画の可否を推測で許可せず、POSTの拒否理由を必ず反映します。
-この不足を埋めるためにUIの仮の応答一式をサーバーへ移植する必要はありません。
+300秒の期限はバックエンドの単調時計が守ります。UIで短い録画へ黙って変更しません。
+録画中は選局・スキャン・二重録画を止め、APIの409も表示します。
+録画だけの手動停止は正常完了ですが、受信を先に止める操作では途中終了になることを確認画面に示します。
+`failed/partial/source_ended`を完成録画として扱いません。
 
-## 実装と確認の順序
+再生・ダウンロードは`completed`・`partial=false`・`file_available`・`download_url`を照合します。
+欠損や未完了は操作できません。再生はCSRF付きPOSTで明示的に開始し、以後はGETと`Playback.url`を使います。
+再生変換やブラウザーの失敗は録画そのものの状態と区別し、失敗ジョブへ自動でPOSTし続けません。
+ダウンロードはAPIが返した登録済みURLだけを使い、任意のパス・URLを入力させません。
 
-1. HTTPモードを明示的に追加し、bootstrapでCSRFを取得する。変更要求に`X-CSRF-Token`を付ける。
-   失敗時に模擬データへ自動切替しない。通信結果が不明な開始要求を再送する際は同じrequest_idを使う。
-   サーバー再起動による403ではbootstrapを更新して状態を照合し、受信を自動再開しない。
-2. スキャン→保存局一覧→選局を接続する。APIの選局処理が旧sessionの回収を待つ。
-   旧応答をIDと操作世代で破棄し、過去の局名・HLS URLを新sessionへ混ぜない。
-3. 安定したvideo要素を置き、native HLSまたは同梱hls.jsで再生する。停止・切替・画面破棄で
-   HLSインスタンスとイベントを解除する。pagehide中に進行中pollingのfinallyからタイマーを再開しない。
-4. 録画開始・停止、一覧、ダウンロード、派生再生を接続する。300秒の停止はサーバーが行う。
-   再生要求は同じ録画IDなら既存ジョブを返すので、失敗を無限に再試行しない。
-5. 再読込・複数タブ・通信断からの復帰で、一覧から動作中の状態を表示するだけにする。
-   画面を開く操作で新規session・scan・recordingを作らない。
-6. `started_at/ts_started_at/hls.ready_at`とvideoの`playing`を同じsession IDで対応付ける。
-   自動再生拒否は利用者の再生操作へ案内する。A/V、初回再生、安定後の時刻進行は別々に確認する。
+## 起動・観測
 
-## 起動と検証
-
-以下では専用ディレクトリへ各360秒の合成TSを初回だけ生成します。出力TSまたは同名JSONが
-既にあると生成スクリプトはエラーで終了します。既存JSONの`duration_seconds`と`physical_channel_label`を確認して
-生成を省略するか、両チャンネルを別の新しいディレクトリへ生成してください。
-他担当と保存先・ポートを共有せず、実機も使用しません。画面だけのデモは生成不要ですが、
-API・HLSを確認するときは2種類のTSとFFmpegが必要です。
+専用worktree・保存先・ポートを使います。以下の生成は初回だけです。
+TSまたは同名JSONが存在する場合は生成条件を照合して再利用するか、新しい場所を使ってください。
 
 ```sh
 uv sync --locked
@@ -81,24 +71,20 @@ SDR_DEMO_PATH=data/issue-29-input/demo.ts \
   --timeout-graceful-shutdown 10
 ```
 
-別ターミナルから、UI操作前のバックエンド確認ができます。これらもsessionと録画を作るため、
-UIの確認とは順番に実行してください。
+ブラウザーで`http://localhost:18329/`を開き、診断→スキャン→選局→録画を操作します。
+360秒入力でも、305秒未満になった後は5分録画を開始できません。
+API用の`smoke-stage2.py`を使う場合も`--source data/issue-29-input/demo.ts`を指定し、
+UI確認と同時には動かさないでください。UI経由の検証は`smoke-webui.py`を使います。
 
-```sh
-uv run --locked python scripts/smoke-stage2.py --origin http://localhost:18329 --source data/issue-29-input/demo.ts
-sh scripts/check.sh
-```
+videoの`sdrObservation`には同じsession IDの`started_at`、`ts_started_at`、`ready_at`、
+最初の`playing_at`、直近30件の再生時刻・buffered end・hls.jsの同期目標・フレーム数を保持します。
+ページ内だけの有界記録で、外部送信しません。プレイヤーと配信端の差を放送時刻からの絶対遅延とは扱いません。
 
-画面は`http://localhost:18329/`で開きます。接続実装前は模擬データのままです。
-合成13chの`demo.ts`と14chの`demo-14.ts`は同じディレクトリに置きます。
-サーバーの`SDR_DEMO_PATH`と検査の`--source`には、必ず同じ13chのTSを指定してください。
-入力が360秒でも、録画開始が遅れると305秒の残量を確保できません。5分録画を試す際は
-選局直後に開始し、残量不足は`insufficient_session_time`として案内します。
-Ctrl+Cでサーバーを停止し、子プロセスの終了を待ちます。保存データは自動削除しません。
+## 後続へ残すもの
 
-ブラウザーでは一連の操作、供給中HLSの映像・音声、録画再生・ダウンロード、切替・停止、
-再読込・複数タブ、通信断・API再起動、拒否された操作、partial、旧イベントの破棄を確認します。
-既存の`smoke-browser.py`はAPI側HLSの機械的確認です。WebUI経由の操作確認を代替しません。
-Safariを実行できなければnative HLS経路の実装と未確認環境を区別し、#19・#23へ渡します。
-対象コミット・コマンド・成功/失敗/未実行を記録し、実機受信・人による視聴を推定しません。
-Actionsは無効のままです。検証記録には個人のパス、生ログ、放送素材を含めません。
+- #19: システム全体の異常経路、長時間の遅延・容量・復元と導入条件の統合確認。
+  今回の注入試験はUIの応答確認であり、実際の全障害を起こした試験ではありません。
+- #21・#22: 実機での受信、復元照合、実時間300秒録画と放送TSの品質。
+- #23: Safariでの標準HLS、実機を使うChromium/Safari、人による映像・音声・音ずれ・音切れの確認。
+  標準HLSの処理を実装し、制御したイベントで終了処理を試験しても、Safari実行の代わりにはしません。
+- liveは501、外部CASは未接続です。研究元・実機・Actions・公開設定・ブランチ保護は変更していません。

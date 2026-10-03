@@ -1,15 +1,16 @@
-# WebUIの設計と模擬データによる実装（#27・#28）
+# WebUIの設計と実APIへの接続（#27〜#29）
 
-作成日: 2026-10-04（日本時間）。対象Issue: #27（画面構成・操作フロー・UI/UXの設計）、
-#28（設計をVueと模擬データで実装）。親Issueは#18、実APIとHLSへの接続は後続の#29です。
+更新日: 2026-10-04（日本時間）。三つのタブと画面部品は#27・#28で設計し、#29で実APIへ接続しました。
+通常の画面は合成TSの診断・スキャン・選局・HLS・録画・再生を操作します。
+HTTP失敗時に模擬デモへ切り替えません。画面だけの模擬デモは`?mode=mock`で明示的に選びます。
 
-模擬画面の作成時に参照したAPIはmainの`579e7f9`です。その後PR #31・#32を統合し、
-本書のAPI対応表と確定した仕様を更新しました。模擬処理の仮の応答は実APIとは異なります。
-接続作業は[API仕様](api.md)と[#29への引継ぎ](issue-29-handoff.md)を基準にしてください。
+現在の仕様は[API仕様](api.md)、[接続実装と引継ぎ](issue-29-handoff.md)、
+[UI接続の検証記録](issue-29-validation.md)を参照してください。
+以下は#27・#28の設計・模擬画面の記録です。「仮」の項目や当時の未実装記述は、実APIの仕様ではありません。
 
 ## この資料と画面の位置づけ
 
-- 現在の画面は**表示確認用のデモ**です。局・映像・録画はすべて架空の模擬データで、
+- `?mode=mock`の画面は**表示確認用のデモ**です。局・映像・録画はすべて架空の模擬データで、
   画面の操作から受信・スキャン・録画のAPIを呼びません。サーバーから取得するのは
   HTML・CSS・JavaScriptのファイルだけです。
 - 動画の領域には自作のテストパターンを「合成表示」と明記して表示します。
@@ -26,11 +27,11 @@ uv sync --locked
 uv run --locked uvicorn sdr_dtv_poc.app:create_app --factory \
   --host 127.0.0.1 --port 8000 --workers 1 --no-proxy-headers --no-access-log \
   --timeout-graceful-shutdown 10
-# ブラウザーで http://localhost:8000/ を開く
+# 模擬画面だけの確認は http://localhost:8000/?mode=mock を開く
 ```
 
 画面上部の「デモの状態を切り替える」で、再現する状態と模擬の時間の速さを選べます。
-URLでも指定できます。例: `http://localhost:8000/?demo=recording_partial&speed=10#watch`。
+URLでも指定できます。例: `http://localhost:8000/?mode=mock&demo=recording_partial&speed=10#watch`。
 `demo`はシナリオ名、`speed`は`1`・`10`・`30`、`#scan`・`#watch`・`#recordings`はタブです。
 模擬データはページ内だけに保持し、再読込すると最初の状態に戻ります。
 
