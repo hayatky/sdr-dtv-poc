@@ -3,9 +3,9 @@
 作成日: 2026-10-04（日本時間）。対象Issue: #27（画面構成・操作フロー・UI/UXの設計）、
 #28（設計をVueと模擬データで実装）。親Issueは#18、実APIとHLSへの接続は後続の#29です。
 
-参照したAPI仕様は、mainのコミット`579e7f9`にある`docs/api.md`、
-`src/sdr_dtv_poc/models.py`、`src/sdr_dtv_poc/app.py`です。
-このコミットより後のAPI変更は反映していません。#29で差分を照合してください。
+模擬画面の作成時に参照したAPIはmainの`579e7f9`です。その後PR #31・#32を統合し、
+本書のAPI対応表と確定した仕様を更新しました。模擬処理の仮の応答は実APIとは異なります。
+接続作業は[API仕様](api.md)と[#29への引継ぎ](issue-29-handoff.md)を基準にしてください。
 
 ## この資料と画面の位置づけ
 
@@ -111,7 +111,7 @@ Vue Routerは使わず、選択中のタブだけをURLのハッシュ（`#scan`
   （完了・途中で終了・中断（途中まで）・録画中）と終了理由を表示します。
 - 「再生する」は合成表示の再生欄を一覧の上に開きます。「TSファイルをダウンロード」は、
   デモではダウンロードしないことを案内するだけです。途中で終了した録画では両方を無効にし、
-  理由を書きます（後述の未確定点を参照）。
+  理由を書きます（後述の「確定した仕様と#29で残る接続作業」を参照）。
 
 ### 画面例
 
@@ -285,29 +285,30 @@ Vue Routerは使わず、選択中のタブだけをURLのハッシュ（`#scan`
 - 模擬処理は、同じ`request_id`での再送に同じIDを返すこと、録画中の選局・スキャン・二重録画、
   残り時間が305秒未満の録画開始を409で拒否することを再現します。
 
-### `api.js`の関数と、想定するAPI
+### `api.js`の関数と、PR #31統合後のAPI
 
-| 関数 | 既存のAPI（`579e7f9`） | 状況 |
+| 関数 | 接続先のAPI | 状況 |
 |---|---|---|
 | `bootstrap()` | `GET /api/bootstrap` | 実装済み。#29で`csrf_token`を保持し、変更操作に`X-CSRF-Token`を付ける |
 | `status()` | なし | **仮**。動作中のID、復元の状態、空き容量をまとめて返すAPIを提案 |
 | `diagnostics(inputKind)` | `GET /api/diagnostics?input_kind=` | 実装済み。応答の形をそのまま使う |
-| `services()` | `GET /api/services` | 実装済みは`Synthetic Test`のみ。追加項目は仮（後述） |
-| `startScan(channels, request_id)` | `POST /api/scans` | 予約のみ（501）。入力は`ScanStart`に合わせた |
-| `getScan(id)`、`stopScan(id)` | `GET /api/scans/{id}`、`POST …/stop` | 予約のみ（501）。応答の形は仮 |
-| `startSession(serviceRef, request_id)` | `POST /api/sessions` | 実装済み。ただし局を指定する項目がない（後述） |
-| `getSession(id)`、`stopSession(id)` | `GET /api/sessions/{id}`、`POST …/stop` | 実装済み。追加項目は仮 |
-| `startRecording(sessionId, request_id)` | `POST /api/recordings` | 予約のみ（501）。入力は`RecordingStart`に合わせた |
-| `getRecording(id)`、`stopRecording(id)`、`recordings()` | `GET /api/recordings/{id}`、`POST …/stop`、`GET /api/recordings` | 予約のみ（501）。応答の形は仮 |
-| 録画の再生・ダウンロード | `GET /api/recordings/{id}/playback`、`…/download` | 予約のみ（501）。デモでは呼ばない |
+| `services()` | `GET /api/services` | 保存された局の一覧。初回のスキャン前は空配列 |
+| `startScan(channels, request_id)` | `POST /api/scans` | 合成入力で実装済み。`input_kind`を明示し、最初は合成13・14chを使う |
+| `getScan(id)`、`stopScan(id)` | `GET /api/scans/{id}`、`POST …/stop` | 実装済み。進捗・結果のフィールドは引継ぎの対応表に従う |
+| `startSession(serviceRef, request_id)` | `POST /api/sessions` | 保存されたServiceの`id`を`service_key`で渡す。600秒とHLS有効化を明示する |
+| `getSession(id)`、`stopSession(id)` | `GET /api/sessions/{id}`、`POST …/stop` | 実装済み。局の情報は`service`、HLSは`hls`に含まれる |
+| `startRecording(sessionId, request_id)` | `POST /api/recordings` | 実装済み。`session_id`と`duration_seconds:300`を渡す |
+| `getRecording(id)`、`stopRecording(id)`、`recordings()` | `GET /api/recordings/{id}`、`POST …/stop`、`GET /api/recordings` | 実装済み。partial・file_available・download_urlを照合する |
+| 録画の再生・ダウンロード | `POST /api/recordings/{id}/playback`、同URLのGET、`GET …/download` | POSTで変換開始、GETは状態取得のみ。模擬画面は呼ばず、#29で接続する |
 
 エラーは既存の`{"code": "...", "message": "..."}`を前提にし、`api.js`で
 `ApiError(status, code)`に変換します。通信できない場合は`status=0`、`code=network_error`です。
 
-## APIへ提案する項目と仮の応答
+## 模擬画面が使う仮の応答（実APIではない）
 
 以下は画面に必要な項目を示すための**仮の応答**です。サーバーの仕様として確定したものではありません。
-既存の`models.py`にある項目名はそのまま使い、新しい項目には「仮」と書きます。
+画面作成時の応答を、模擬処理の読解用に残しています。以下の項目を現行`models.py`へ
+追加する指示ではありません。接続時は上の対応表と#29への引継ぎに沿って画面の参照を変更します。
 
 ### 全体の状態（仮: `GET /api/status`）
 
@@ -344,10 +345,10 @@ Vue Routerは使わず、選択中のタブだけをURLのハッシュ（`#scan`
  "health": {"signal": "ok", "ts": "ok", "cas": "ok", "hls": "ok"}}
 ```
 
-- 選局に使う`service_ref`（局の`id`）を`SessionStart`へ追加する案です。
-  合成・保存TSでは、既存の`input_kind`と`source_id`へ対応させる方法もあります。
+- 模擬処理の選局には`service_ref`を使います。実APIでは確定済みの`service_key`へ対応させます。
 - `remaining_seconds`はサーバーの時計で計算した残り秒数です。端末の時計のずれを避けるため、
-  `deadline_at`との差を画面で計算しない方針にしました。
+  模擬画面では`deadline_at`との差を計算しません。実APIにこの項目はなく、#29では
+  推定の残り時間表示と、サーバーが判定する録画開始の可否を区別します。
 - `health`の各値は`waiting`・`ok`・`failed`・`blocked`・`not_required`を仮定しました。
   電波・TS・カード/CAS・変換の失敗を分けて表示するために必要です。
 - HLSのURL（またはHLSのartifact ID）も#29で必要ですが、模擬では使わないため含めていません。
@@ -389,19 +390,19 @@ Vue Routerは使わず、選択中のタブだけをURLのハッシュ（`#scan`
 `session_not_running`、`service_not_found`、`scan_not_found`、`recording_not_found`。
 `stop_timeout`は画面の内部だけで使うコードで、APIへの追加は求めません。
 
-## 未確定点
+## 確定した仕様と#29で残る接続作業
 
-- 局を指定して受信を開始する入力（`SessionStart`に`service_ref`を追加するか、別の形にするか）。
-- 全体の状態を返すAPIの有無と形。再読込・別タブの扱いに必要です。
-- スキャンを中止・失敗したときに、中止までに見つかった局を保存するか。模擬では保存しません。
-- 途中で終了した録画のTSをダウンロード・再生できるか。現在のAPI仕様ではpartialのartifactを
-  配信しないため、模擬では両方を無効にしています。
-- 録画中に受信を停止した場合の録画の終了理由。模擬では`requested`としました。
-- カード/CAS・変換・プレイヤーの失敗を、サーバーとブラウザーのどちらで判定してどの項目で返すか。
-- 録画一覧の削除。容量不足の案内で「空き容量を増やす」と書いていますが、画面からの削除は
-  初期範囲に含めていません。
-- 受信の残り時間は600秒の上限を前提にしています。録画開始に必要な残り時間は
-  `docs/api.md`の「残り300秒＋停止猶予5秒」に合わせました。
+- 選局は`service_key`。スキャンで見つかった局は順次保存し、中止・失敗でも過去の一覧を消しません。
+  模擬処理の`saved`判定を実APIの保存条件にしないでください。
+- partialの録画はダウンロード・再生を拒否します。録画中に受信を先に停止すると
+  `failed/partial/source_ended`です。模擬処理もPR #32のレビューでこの終了理由へ修正済みです。
+- CAS・変換の故障は`hls.error_code/error_stage`、ブラウザーでの再生失敗はvideo/hls.jsの
+  イベントで判断します。映像・音声を実際に再生できたかは#29で接続して確認します。
+- 全体状態の`/api/status`は未実装です。一覧APIからの動作中IDの取得と、取得できない
+  復元ゲート全体・残り入力時間の扱いは[#29への引継ぎ](issue-29-handoff.md)に従います。
+- 受信は最大600秒ですが、合成入力は360秒でEOFになります。300秒録画には受信期限と
+  入力残量の両方に305秒以上が必要です。画面だけで録画可能と決めず、APIの拒否理由を表示します。
+- 録画一覧からの削除は初期範囲に含めません。容量不足の案内から勝手にファイルを削除しません。
 
 ## 担当外のファイルへの変更
 
@@ -424,7 +425,7 @@ PR #32のマージ前レビューで、次の案内をREADMEへ反映しまし�
 > 画面は表示確認用のデモです。三つのタブ（接続・スキャン、視聴、録画）を架空の模擬データで操作でき、
 > 受信・録画のAPIは呼びません。APIとの接続は#29で行います。合成デモのAPI確認は
 > `uv run --locked python scripts/smoke-api.py`で行えます。画面の設計は
-> [WebUIの設計](docs/webui-design.md)を参照してください。
+> WebUIの設計資料を参照してください。
 
 旧入口のボタンを使う案内は削除しました。
 

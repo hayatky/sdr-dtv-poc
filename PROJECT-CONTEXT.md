@@ -1,8 +1,8 @@
 # sdr-dtv-poc：プロジェクト概要と初期コンテキスト
 
-更新日：2026-10-01（日本時間）。対象読者は、このリポジトリで開発する人・AIエージェントです。会話履歴なしで、背景、確定仕様、検証済みの成果、残作業、運用上の境界を把握するための引継ぎ文書です。
+更新日：2026-10-04（日本時間）。初期記録は2026-10-01です。対象読者は、このリポジトリで開発する人・AIエージェントです。会話履歴なしで、背景、確定仕様、検証済みの成果、残作業、運用上の境界を把握するための引継ぎ文書です。
 
-本書は初期スナップショットです。実装開始時にGitHub Issue・PR・採用コードの最新状態を照合してください。古いIssue本文の「未達」や実験記録の「停止」は、その時点の履歴です。現在のユーザー指示と新しい根拠を優先し、成功済み試験を理由なく繰り返しません。
+本書は現在の作業入口と、研究元からの初期引継ぎをまとめたものです。実装開始時にGitHub Issue・PR・採用コードの最新状態を照合してください。研究元のIssue番号・依存関係や過去の検証結果は、その時点の記録です。現在のユーザー指示と新しい根拠を優先し、成功済み試験を理由なく繰り返しません。
 
 ## 2026-10-04の実装状況
 
@@ -10,6 +10,9 @@
 段階2のバックエンド（#13〜#17）と、模擬データで動くWebUI（#27・#28）を実装しました。
 具体的なAPIとの差、起動手順、検証項目は[#29への引継ぎ](docs/issue-29-handoff.md)を参照してください。
 既定ブランチはmainで、PR #1は`ef240803845cdad23c3f76216bdc5e7c7b2fccef`へ統合済みです。
+段階1はPR #30、段階2のバックエンドはPR #31（`7906eca`）、模擬WebUIは
+PR #32（`a90eedc`）へ統合済みです。#13〜#17・#27・#28は完了し、#29の先行Issueも完了しています。
+#4・#18はAPI・HLS接続が残るため未完了です。
 以下の初期記録にある研究元#63の範囲を、そのまま現在の担当範囲とは扱いません。
 
 Issue #3の作業ではFastAPI・SQLite・合成TSの子ワーカー・操作保護・IDによる配信、
@@ -19,7 +22,8 @@ Docker Compose/uv起動と仮のAPI入口を追加しました。固定native環
 APIのlive入力、実機での受信・復元・視聴・録画は後続Issueです。
 
 現行仕様は[API](docs/api.md)、[受信処理](docs/receiver.md)、
-[検証記録](docs/issue-3-validation.md)、[README](README.md)を参照してください。
+[バックエンドの検証記録](docs/issue-4-backend-validation.md)、
+[WebUIの設計と検証記録](docs/webui-design.md)、[README](README.md)を参照してください。
 研究元の自作wrapper等の配布条件は未確定で、既定imageへコピーしていません。
 Actionsは無効のまま、非公開設定とブランチ保護も変更しません。
 
@@ -149,7 +153,9 @@ RX保存は`ci16_le`、I/Q交互、各signed16 bit、1複素標本4 byte。6.4 M
 
 ## 7. API・寿命・スキャン・録画の仕様
 
-具体的API名やDB schemaは#63で最小限を決め、README/OpenAPI/仕様文書/実装を揃えます。
+初期構想は研究元#63に由来します。現在のAPIとDBは本リポジトリで実装済みです。
+具体的な入出力は[API仕様](docs/api.md)、`models.py`、起動したアプリのOpenAPIを参照してください。
+以下は完成時に満たす要件で、実機のRX・CASまで実装済みという意味ではありません。
 
 - 診断は到達性・依存・カード・保存先を個別表示し、診断操作だけでRXを開始しない。
 - 開始/停止/scanは長いHTTPリクエストに閉じ込めず、session/job IDとpollingで状態を追う。
@@ -183,13 +189,19 @@ session残り期限が300秒未満なら5分録画として開始しません。
 
 ## 8. 開発順序と公開判定
 
+現在は本リポジトリの#29でAPI・HLSをWebUIへ接続し、その成果を#19の統合確認へ渡します。
+実機の先行成果は#20、実機での受信・録画・ブラウザー確認は#21〜#23、導入・公開は#24〜#26です。
+以下の表は2026-10-01時点の研究元での分担です。今の着手先・依存関係は本リポジトリの#2を参照してください。
+
 | Issue（研究元） | 担当/依存 |
 |---|---|
 | [#63](https://github.com/hayatky/hlfec-sdr-lab/issues/63) | 新repo基盤、固定backend、API/adapter、SQLite、Vue、Compose/uv、mock/保存TSの一連操作。実機なしで先行可 |
 | [#61](https://github.com/hayatky/hlfec-sdr-lab/issues/61) → [#62](https://github.com/hayatky/hlfec-sdr-lab/issues/62) | 既存scanを再利用し、他物理chの12セグTS/A/V・切替・選局メタデータを確定 |
 | [#64](https://github.com/hayatky/hlfec-sdr-lab/issues/64) | #63/#62を前提に、実機scan・HLS視聴・5分録画・録画再生・停止復元・導入確認 |
 
-おすすめは#63から着手し、最小WebUIができたら実際に使う経路で27chの12セグライブを早めに評価することです。別の完成したライブPoCを作ってから移植する必要はありません。ただし**現在の#64の正式な実機依存は#63/#62**です。27ch単局の先行実機検証を正式に分離する場合は、Issueの担当/依存を整合させます。本書だけで依存変更が承認済みとは扱いません。
+初期計画では研究元#63から着手し、最小WebUIを使って27chの12セグライブを評価する順序でした。
+当時の研究元#64の依存は#63/#62です。これは現在の#29で実機操作を始める指示ではありません。
+別の完成したライブPoCを作って移植する必要はなく、今後も本アプリへ薄いアダプターで接続します。
 
 公開PoCの完了判定は#54全文を参照し、少なくとも次を確認します。
 
@@ -249,7 +261,7 @@ Python用.gitignoreに加え、`.env`/`.env.*`（`.env.example`は例外）、`d
 - 関連test/typecheck/lint/build、必要な実機確認を選び、コマンドと結果を残す。必要な検証成功後は、新しい変更/失敗/懸念がない限り繰り返さない。
 - 原則メイン担当が一貫して作業し、明確に独立した調査/長い検証/重要レビューだけ委譲する。重複調査・同一ファイル並列書込・実機同時利用を避ける。
 
-## 12. 参照資料と最初に行うこと
+## 12. 研究元の参照資料と現在の着手先
 
 確定仕様：[#54](https://github.com/hayatky/hlfec-sdr-lab/issues/54)、基盤[#63](https://github.com/hayatky/hlfec-sdr-lab/issues/63)、実機統合[#64](https://github.com/hayatky/hlfec-sdr-lab/issues/64)。他局依存は[#61](https://github.com/hayatky/hlfec-sdr-lab/issues/61)/[#62](https://github.com/hayatky/hlfec-sdr-lab/issues/62)。Issue下部の2026-09-29時点「90秒・segfault・10分未達」は履歴で、PR #71/#73の後続結果を優先します。
 
@@ -263,4 +275,6 @@ Python用.gitignoreに加え、`.env`/`.env.*`（`.env.example`は例外）、`d
 - [全階層復元設計](https://github.com/hayatky/hlfec-sdr-lab/blob/b1dcbf3688db79f149ff3a255639a36860ec3924/docs/isdb-t-all-layer-reconstruction.md)
 - [最終630秒RX・A/V根拠](https://github.com/hayatky/hlfec-sdr-lab/blob/b1dcbf3688db79f149ff3a255639a36860ec3924/experiments/EXP-20261001-005-all-layer-rx-after-reconnect.md)
 
-**最初の成果物は#63の動く最小構成です。** 上記を照合し、固定backendの利用方法/ライセンス、API・adapterと有限session仕様を決め、Composeとuv、三タブのUI、SQLite、mock/保存TSによるHLS・開始停止・録画状態を実装します。構成案だけで終わらずレビュー可能なコード・必要な検証・READMEまで揃えます。実機/他局が未準備なら独立してできる部分を進め、mockの結果を実機達成とは表示しません。
+**現在の着手先は本リポジトリの#29です。** [引継ぎ](docs/issue-29-handoff.md)から開始し、
+統合済みのAPI・SQLite・合成TS・模擬WebUIを再利用して、HTTPとHLSを接続してください。
+合成入力で確認した結果と、未実施の実機での確認を分けて#19・#23へ引き継ぎます。

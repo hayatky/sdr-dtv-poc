@@ -1,7 +1,9 @@
 # Issue #29: WebUIを実API・HLSへ接続するための引継ぎ
 
 更新日: 2026-10-04（日本時間）。対象はPR #31の段階2バックエンドとPR #32のWebUIです。
-マージ後のmainから作業を始め、開始前にstatus・HEAD・remote・既存変更を確認してください。
+PR #31・#32はmainの`a90eedc`までに統合済みで、先行Issue #28・#14・#17も完了しています。
+最新のmainから作業を始め、開始前にstatus・HEAD・remote・既存変更を確認してください。
+本書とAPI仕様を先に読み、画面設計内の仮のJSONを実APIの応答とは扱わないでください。
 
 ## 達成済みの範囲と担当
 
@@ -62,15 +64,18 @@ Node.js/npm・ビルド・CDNは追加せず、同梱Vue 3.5.22とhls.js 1.6.13�
 
 ## 起動と検証
 
-READMEのuv手順で各360秒の合成TSを生成します。生成済みファイルは上書きしません。
+以下では専用ディレクトリへ各360秒の合成TSを初回だけ生成します。出力TSまたは同名JSONが
+既にあると生成スクリプトはエラーで終了します。既存JSONの`duration_seconds`と`physical_channel_label`を確認して
+生成を省略するか、両チャンネルを別の新しいディレクトリへ生成してください。
 他担当と保存先・ポートを共有せず、実機も使用しません。画面だけのデモは生成不要ですが、
 API・HLSを確認するときは2種類のTSとFFmpegが必要です。
 
 ```sh
 uv sync --locked
-uv run --locked python scripts/generate-demo.py
-uv run --locked python scripts/generate-demo.py --output data/demo/demo-14.ts --channel 14
-SDR_DATA_DIR=data/issue-29 SDR_ORIGIN=http://localhost:18329 \
+uv run --locked python scripts/generate-demo.py --output data/issue-29-input/demo.ts
+uv run --locked python scripts/generate-demo.py --output data/issue-29-input/demo-14.ts --channel 14
+SDR_DEMO_PATH=data/issue-29-input/demo.ts \
+  SDR_DATA_DIR=data/issue-29 SDR_ORIGIN=http://localhost:18329 \
   uv run --locked uvicorn sdr_dtv_poc.app:create_app --factory \
   --host 127.0.0.1 --port 18329 --workers 1 --no-proxy-headers --no-access-log \
   --timeout-graceful-shutdown 10
@@ -80,9 +85,16 @@ SDR_DATA_DIR=data/issue-29 SDR_ORIGIN=http://localhost:18329 \
 UIの確認とは順番に実行してください。
 
 ```sh
-uv run --locked python scripts/smoke-stage2.py --origin http://localhost:18329 --source data/demo/demo.ts
+uv run --locked python scripts/smoke-stage2.py --origin http://localhost:18329 --source data/issue-29-input/demo.ts
 sh scripts/check.sh
 ```
+
+画面は`http://localhost:18329/`で開きます。接続実装前は模擬データのままです。
+合成13chの`demo.ts`と14chの`demo-14.ts`は同じディレクトリに置きます。
+サーバーの`SDR_DEMO_PATH`と検査の`--source`には、必ず同じ13chのTSを指定してください。
+入力が360秒でも、録画開始が遅れると305秒の残量を確保できません。5分録画を試す際は
+選局直後に開始し、残量不足は`insufficient_session_time`として案内します。
+Ctrl+Cでサーバーを停止し、子プロセスの終了を待ちます。保存データは自動削除しません。
 
 ブラウザーでは一連の操作、供給中HLSの映像・音声、録画再生・ダウンロード、切替・停止、
 再読込・複数タブ、通信断・API再起動、拒否された操作、partial、旧イベントの破棄を確認します。
