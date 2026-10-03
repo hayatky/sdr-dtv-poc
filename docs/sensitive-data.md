@@ -41,7 +41,8 @@ git diff --cached
 `pre-commit`はstagedとlint・整形検査、`pre-push`は型検査・テストを含む
 `sh scripts/check.sh`（workingとhistoryも含む）を実行します。
 push/PRのActionsでは全履歴をcheckoutして同じ検査を実行します。
-保護ルールでは`Development checks / checks`を必須checkにしてください。
+Actionsは現在無効です。今回の作業では有効化、公開設定、ブランチ保護を変更しません。
+将来の必須check設定は、管理者の明示的な承認とCIの実行確認後に扱います。
 ローカルhookはcloneごとに有効化が必要で、CIはpush後の検査です。
 hookの無効化・`--no-verify`に依存した運用をしないでください。
 
@@ -81,4 +82,4 @@ uv run --locked pytest
 `sh -n .githooks/pre-commit .githooks/pre-push`、`git diff --check`は成功しました。
 このcheckoutのhookを有効化し、GitHubの非公開Secretも登録済みです。
 Actions実行と必須checkの保護ルール設定は未実施です。
-workflowをpushした後、CI成功を確認して保護ルールを設定してください。
+Actionsの無効状態を維持します。CIや保護ルールを変更する場合は別途承認が必要です。

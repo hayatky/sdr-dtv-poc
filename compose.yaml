@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+services:
+  app:
+    build: .
+    init: true
+    ports:
+      - "127.0.0.1:${SDR_PORT:-8000}:8000"
+    environment:
+      SDR_ORIGIN: "${SDR_ORIGIN:-http://localhost:8000}"
+    volumes:
+      - app-data:/data
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /run/sdr-hls:size=64m,uid=10001,gid=10001,mode=0700
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 2
+    stop_grace_period: 35s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8000/api/health', headers={'Host':os.environ['SDR_ORIGIN'].split('://',1)[1]}); urllib.request.urlopen(r,timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+volumes:
+  app-data:

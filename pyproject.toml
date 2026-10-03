@@ -6,17 +6,26 @@ description = "Experimental SDR digital TV receiver PoC"
 readme = "README.md"
 license = "GPL-3.0-or-later"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "fastapi>=0.142.2",
+    "pydantic>=2.13.5",
+    "uvicorn>=0.54.0",
+]
 
 [dependency-groups]
 dev = [
     "ruff",
     "mypy",
     "pytest",
+    "httpx>=0.28.1",
 ]
 
-[tool.uv]
-package = false
+[build-system]
+requires = ["hatchling==1.29.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sdr_dtv_poc"]
 
 [tool.ruff]
 target-version = "py312"
@@ -28,7 +37,7 @@ select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["scripts", "tests"]
+files = ["src", "scripts", "tests"]
 strict = true
 
 [tool.pytest.ini_options]
