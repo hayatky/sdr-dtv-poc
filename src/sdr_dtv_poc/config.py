@@ -18,7 +18,12 @@ class Settings:
     demo_path: Path = Path("data/demo/demo.ts")
     demo_bitrate: int = 1_000_000
     saved_sources: dict[str, Source] = field(default_factory=dict)
-    max_output_bytes: int = 80_000_000
+    max_output_bytes: int = 4_000_000_000
+    max_recording_bytes: int = 2_000_000_000
+    max_hls_bytes: int = 32 * 1024 * 1024
+    max_playback_bytes: int = 256 * 1024 * 1024
+    media_queue_chunks: int = 256
+    device_lock_dir: Path | None = None
     min_free_bytes: int = 128 * 1024 * 1024
 
     @classmethod
@@ -36,4 +41,7 @@ class Settings:
             origin=os.environ.get("SDR_ORIGIN", "http://localhost:8000"),
             demo_path=Path(os.environ.get("SDR_DEMO_PATH", "data/demo/demo.ts")),
             saved_sources=sources,
+            device_lock_dir=Path(os.environ["SDR_DEVICE_LOCK_DIR"])
+            if os.environ.get("SDR_DEVICE_LOCK_DIR")
+            else None,
         )

@@ -2,7 +2,9 @@
 import sqlite3
 from pathlib import Path
 
-from .models import Artifact, Session
+from pydantic import BaseModel
+
+from .models import Artifact, Session, StrictModel
 
 
 class Store:
@@ -12,9 +14,16 @@ class Store:
         self.db = sqlite3.connect(path)
         self.db.execute("PRAGMA journal_mode=WAL")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1):
+        if version not in (0, 1, 2):
             self.db.close()
             raise RuntimeError("unsupported database schema")
+        if version == 1:
+            backup = path.with_name("state.before-v2.sqlite3")
+            if backup.exists():
+                self.db.close()
+                raise RuntimeError("schema backup already exists")
+            with sqlite3.connect(backup) as destination:
+                self.db.backup(destination)
         with self.db:
             self.db.execute(
                 "CREATE TABLE IF NOT EXISTS sessions "
@@ -25,7 +34,11 @@ class Store:
                 "CREATE TABLE IF NOT EXISTS artifacts "
                 "(id TEXT PRIMARY KEY, relative_path TEXT NOT NULL, body TEXT NOT NULL)"
             )
-            self.db.execute("PRAGMA user_version=1")
+            for table in ("scans", "recordings", "playbacks", "services"):
+                self.db.execute(
+                    f"CREATE TABLE IF NOT EXISTS {table} (id TEXT PRIMARY KEY, body TEXT NOT NULL, request_json TEXT NOT NULL)"
+                )
+            self.db.execute("PRAGMA user_version=2")
 
     def save_session(self, session: Session, request_json: str) -> None:
         with self.db:
@@ -40,7 +53,7 @@ class Store:
                 item, relative = artifact
                 self.db.execute(
                     "INSERT INTO artifacts VALUES (?,?,?)",
-                    (str(item.id), relative, item.model_dump_json()),
+                    (str(item.model_dump()["id"]), relative, item.model_dump_json()),
                 )
             self.db.execute(
                 "UPDATE sessions SET body=? WHERE id=?",
@@ -65,6 +78,41 @@ class Store:
             "SELECT body,relative_path FROM artifacts WHERE id=?", (artifact_id,)
         ).fetchone()
         return (Artifact.model_validate_json(row[0]), row[1]) if row else None
+
+    def records(self, table: str) -> list[tuple[str, str]]:
+        assert table in {"scans", "recordings", "playbacks", "services"}
+        return list(self.db.execute(f"SELECT body,request_json FROM {table}"))
+
+    def save_record(
+        self,
+        table: str,
+        item: BaseModel,
+        request: StrictModel | None = None,
+        artifact: tuple[Artifact, str] | None = None,
+    ) -> None:
+        assert table in {"scans", "recordings", "playbacks", "services"}
+        with self.db:
+            if artifact:
+                value, relative = artifact
+                self.db.execute(
+                    "INSERT INTO artifacts VALUES (?,?,?)",
+                    (str(value.id), relative, value.model_dump_json()),
+                )
+            self.db.execute(
+                f"INSERT INTO {table} VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
+                (
+                    str(item.model_dump()["id"]),
+                    item.model_dump_json(),
+                    request.model_dump_json() if request else "",
+                ),
+            )
+
+    def update_artifact(self, artifact: Artifact) -> None:
+        with self.db:
+            self.db.execute(
+                "UPDATE artifacts SET body=? WHERE id=?",
+                (artifact.model_dump_json(), str(artifact.id)),
+            )
 
     def close(self) -> None:
         self.db.close()

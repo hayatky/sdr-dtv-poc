@@ -14,7 +14,8 @@ COPY src ./src
 COPY scripts/generate-demo.py ./scripts/generate-demo.py
 RUN uv sync --locked --no-dev --no-editable --python /usr/bin/python3.12 && \
     uv run --no-sync python scripts/generate-demo.py --output /opt/demo/demo.ts && \
-    mkdir -p /data /run/sdr-hls && chown 10001:10001 /data /run/sdr-hls
+    uv run --no-sync python scripts/generate-demo.py --output /opt/demo/demo-14.ts --channel 14 && \
+    mkdir -p /data && chown 10001:10001 /data
 ENV PATH=/app/.venv/bin:$PATH SDR_DATA_DIR=/data SDR_DEMO_PATH=/opt/demo/demo.ts
 USER 10001:10001
 EXPOSE 8000

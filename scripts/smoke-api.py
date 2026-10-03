@@ -16,7 +16,7 @@ def main() -> None:
     parser.add_argument("--session-id", help="check an existing session after restart")
     args = parser.parse_args()
 
-    def request(path: str, data: dict[str, str] | None = None) -> Any:
+    def request(path: str, data: dict[str, Any] | None = None) -> Any:
         headers = {"Origin": args.origin}
         if data is not None:
             headers.update({"X-CSRF-Token": token, "Content-Type": "application/json"})
@@ -36,14 +36,17 @@ def main() -> None:
     if args.session_id:
         session = request("/api/sessions/" + args.session_id)
     else:
-        session = request("/api/sessions", {"request_id": str(uuid4())})
+        session = request(
+            "/api/sessions",
+            {"request_id": str(uuid4()), "duration_seconds": 8, "enable_hls": False},
+        )
         limit = time.monotonic() + 20
         while session["state"] in {"starting", "running", "stopping"}:
             if time.monotonic() > limit:
                 raise RuntimeError("demo deadline exceeded")
             time.sleep(0.1)
             session = request("/api/sessions/" + session["id"])
-    assert session["state"] == "completed" and session["end_reason"] == "eof", session
+    assert session["state"] == "completed" and session["end_reason"] in {"eof", "deadline"}, session
     assert session["input_kind"] == "synthetic"
     artifact = request("/api/artifacts/" + session["artifact_id"])
     with urllib.request.urlopen(

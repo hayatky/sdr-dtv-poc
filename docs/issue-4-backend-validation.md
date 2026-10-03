@@ -1,0 +1,104 @@
+# 段階2バックエンド（#13〜#17）の実装と検証
+
+確認日: 2026-10-04（日本時間）。作業元は段階1のmain `579e7f9`。
+独立worktree・`codex/stage2-backend`で実装し、共有checkoutと他担当のファイルは変更していません。
+検証対象コミットと最終の必須hookの結果はPR本文に記録します。実機は操作していません。
+
+## 担当Issueと実装
+
+| Issue | 実装・確認 | 実機・後続へ残るもの |
+|---|---|---|
+| #13 | 共通flockと子へのFD継承、期限、録画終了→HLS/入力子回収→復元結果→保存→排他解放、復元不明ゲート、interrupted/partial、HLS公開停止 | 実際の研究CLIと同じinodeの共有設定、baselineと独立readback、実機停止・復元 |
+| #14 | 合成の13/14ch、範囲指定、進捗・中止、未実行/未検出、SQLiteへのサービス保存、別TSの同じservice ID、保存情報からの選局 | RFスキャン、実測TMCC、実放送のARIB局名・リモコン番号の取得 |
+| #15 | 同じTSから有限キューでH.264/AAC HLS、セッション別URL、遅い下流・変換失敗・CAS未設定の分類、録画の継続 | 外部CASの接続、実放送の12セグHLS、長時間の遅延・品質、人の視聴 |
+| #16 | 単調時計の最大300秒、残り入力時間、手動停止、競合拒否、packet境界、容量・write/flush/close/DB失敗、partial、録画停止後の視聴 | 実時間300秒と放送TSの継続時間・品質は#22 |
+| #17 | 一覧、ファイル照合、登録IDによるオリジナル配信、別HLS変換、重複・180秒期限・容量・子回収、再生故障と録画状態の分離 | カード条件、Safari、人の保存再生、実放送での確認 |
+
+#4全体と#18は完了扱いにしません。liveは501、saved_tsの範囲scanも501です。
+研究元のwrapperは未確定な再配布条件のまま取り込んでいません。独自CAS・復調器も追加していません。
+
+## 自動試験
+
+`sh scripts/check.sh`でRuff・整形・mypy、pytest、working/history機密検査を実行します。
+追加試験では次を確認します。
+
+- 異なるAPI保存先でも同じdevice lockを使う競合、親がFDを閉じても子が保持する排他、
+  復元unknown、停止猶予超過、録画終了と復元・解放の順序。
+- 時計を制御した299.9秒/300秒の録画、手動停止、残り時間不足、禁止操作、TS区間のbyte一致。
+- write/flush/close失敗、空き容量不足、SQLite確定失敗時のrollback、再起動時のpartial、schema移行。
+- スキャンの中止・未検出でも保存局を保持し、同じservice IDの別TSを混同しない。
+- HLSキュー満杯、出力上限、CAS未設定、プレイリスト更新競合、再起動後の公開停止。
+- 録画のpartial・欠損・コーデック失敗・変換期限。再生失敗でオリジナルや録画状態を変更しない。
+- Host/Origin/CSRFと安全なファイル配信を維持し、追加POSTにも保護を適用。
+
+独立レビューで、録画close失敗時に後続cleanupが中断する経路、プレイリストとmembersの
+更新競合、再起動後の古いHLS公開を修正しました。修正後の限定レビューでも解消を確認しています。
+
+## 合成TSと供給中のA/V
+
+合成TSは`generate-demo.py`で各360秒を一度のFFmpeg実行で生成します。
+13/14というラベル、ONID 1、TSID 13/14、service ID 1、MPEG-2/MP2、1 Mbps、
+320×180/25fps、音声440/880 Hzです。実際の放送素材は使いません。単純連結・ループはしません。
+旧80 MB上限では50 Mbpsの入力を600秒扱えないため、session保存は4 GB、録画は2 GBにしました。
+HLS32 MiB、録画再生256 MiB、空き128 MiBの下限と履歴数の上限は有限です。
+
+専用ポート・保存先・Compose projectで実行したコマンド:
+
+```sh
+uv sync --locked
+uv run --locked python scripts/generate-demo.py
+uv run --locked python scripts/generate-demo.py --output data/demo/demo-14.ts --channel 14
+# READMEのuv起動コマンドで、専用のSDR_DATA_DIR/SDR_ORIGIN/portを指定
+uv run --locked python scripts/smoke-stage2.py --origin http://localhost:18324 --source data/demo/demo.ts
+SDR_PORT=18325 SDR_ORIGIN=http://localhost:18325 docker compose -p sdr-dtv-stage2-backend config --quiet
+SDR_PORT=18325 SDR_ORIGIN=http://localhost:18325 docker compose -p sdr-dtv-stage2-backend up --build -d --wait
+uv run --locked python scripts/smoke-stage2.py --origin http://localhost:18325 --source data/demo/demo.ts
+```
+
+uvとComposeの両方で、3チャンネル中2サービスを保存し、TS供給中のHLS A/Vデコード、
+8秒録画の期限停止、その後の視聴継続、録画の派生HLS A/Vデコードが成功しました。
+初回の観測ではHLS準備までuv 2.354秒、Compose 2.370秒。録画1,000,160 byte、
+FFprobeの時刻範囲8.210022秒でした。8秒の書込み区間とmuxの時刻範囲は別の測定値です。
+録画区間と入力のbyte一致、ダウンロードhash、変換前後のオリジナル不変を確認しました。
+FFmpegで映像と音声を両方指定してデコードし、エラーログがないことも確認しました。
+
+## Chromiumの自動再生確認
+
+`scripts/smoke-browser.py`とPlaywright Python 1.58.0、既存Chromium 145.0.7632.6で、
+製品UIに依存せず、同一Originのhls.jsとvideo要素を使いました。アプリに追加依存はありません。
+不足したOSライブラリは一時ディレクトリへ展開し、ホストのインストール状態を変更していません。
+
+- 合成入力の供給中にライブ映像262フレームと非ゼロ音声（最大振幅約0.171）を観測。
+- 起動直後は最初のsegmentだけで再生したためバッファ待ちがあり、最初の5秒だけを使った
+  進行判定は失敗しました。これを無かったことにせず、7秒の起動観測を保存してから別に評価しました。
+- その後の5サンプルでは再生時刻が6.275秒から10.277秒へ進み、`liveSyncPosition-currentTime`は
+  約−3.005〜−2.993秒でした。負値はhls.jsの同期目標より再生位置が先にある意味で、
+  放送時刻からの遅延ではありません。この短い観測だけで長時間の遅延増加を否定しません。
+- 録画再生では129フレーム・非ゼロ音声（最大振幅約0.170）と、約4秒の再生時刻進行を確認。
+- Web Audioの出力gainは0で、数値によるデコード確認です。人が映像を見て音を聴いた確認ではありません。
+
+ブラウザーの初回起動は共有ライブラリ不足で失敗しました。依存を補った後の成功と区別します。
+Safari、人による品質・音ずれ・音切れの確認は未実施です。
+
+## UI担当（#29）・統合検証（#19）への引継ぎ
+
+- APIの具体例、全フィールド、状態・期限・終了理由・復元状態・エラーは[API仕様](api.md)。
+  生成されるOpenAPIとPydanticモデルを使い、模擬データの仮定をそのまま接続しないでください。
+- Serviceの保存キー`id`をSessionStartの`service_key`へ渡します。整数service IDとは別です。
+  選局後は新sessionの`hls.url`を待ち、旧プレイヤーとpollingを破棄します。
+- 録画中は切替・scan・二重録画をUIでも無効化し、APIの409も処理します。
+  5分録画はsession 600秒で開始しても、入力残量や経過時間次第では拒否されます。
+- 再生開始はCSRF付きPOST、状態取得はGET。録画の完了と再生変換の失敗を別に表示します。
+  `file_available=false`、partial、`hls.state=failed/interrupted`は正常再生として扱いません。
+- `ready_at`はサーバーの配信準備です。UIの`playing`時刻、起動時のバッファ待ち、
+  安定後の遅延・音切れを別に採ってください。今回の短いブラウザー試験を#19全体の完了としません。
+- 再起動、停止失敗、ディスク不足、DB障害、CAS未設定、別API保存先の排他は回帰試験があります。
+  実機では実際の子・readback・共通lockの再取得を追加照合してください。
+
+## 制限・実施していないこと
+
+実機通信、RF受信、設定変更、研究元への書込み、実際の研究CLIとの同時排他試験、外部CAS接続、
+実時間300秒の録画、Safari、人の再生確認、製品UIへの接続は未実施です。
+Linux以外の親終了通知、可変bitrateのPCR同期、全SI/ARIB文字列も未対応です。
+Actionsは無効のためCI未実行。公開設定・ブランチ保護・Issueの完了状態は変更していません。
+PRは作成しますがマージしません。
