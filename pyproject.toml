@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[project]
+name = "sdr-dtv-poc"
+version = "0.1.0"
+description = "Experimental SDR digital TV receiver PoC"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["data", "artifacts"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["scripts", "tests"]
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

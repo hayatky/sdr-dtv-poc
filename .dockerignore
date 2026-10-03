@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+.git
+.env
+.env.*
+.private-identifiers
+data
+artifacts
+*.ts
+*.iq
+*.db
+*.sqlite*
+*.log
+gitleaks-report.*
+.venv
+__pycache__

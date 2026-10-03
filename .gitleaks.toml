@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+title = "Repository credentials and personal environment policy"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "personal-home-path"
+description = "User-specific Linux/macOS home directory"
+regex = '''(?i)[/](?:home|users)[/]([^/\s<>"'`]+)'''
+secretGroup = 1
+[[rules.allowlists]]
+description = "Explicit documentation placeholders only"
+regexTarget = "secret"
+regexes = ['''^(?:example|user|username|USER|USERNAME)$''']
+
+[[rules]]
+id = "personal-windows-home-path"
+description = "User-specific Windows home directory"
+regex = '''(?i)[a-z]:[\\/](?:users|documents and settings)[\\/]([^\\/\s<>"'`]+)'''
+secretGroup = 1
+[[rules.allowlists]]
+regexTarget = "secret"
+regexes = ['''^(?:example|user|username)$''']
+
+[[rules]]
+id = "private-key-file"
+description = "Private key filename"
+path = '''(?i)(^|/)(id_rsa|id_ed25519|id_ecdsa|id_dsa)(\.[^/]*)?$'''
+
+[[rules]]
+id = "local-secret-file"
+description = "Local environment and secret configuration must not be tracked"
+path = '''(^|/)(\.env($|\.)|\.netrc$|\.pypirc$)'''
+[[rules.allowlists]]
+paths = ['''(^|/)\.env\.example$''']
