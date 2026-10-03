@@ -102,3 +102,30 @@ Safari、人による品質・音ずれ・音切れの確認は未実施です�
 Linux以外の親終了通知、可変bitrateのPCR同期、全SI/ARIB文字列も未対応です。
 Actionsは無効のためCI未実行。公開設定・ブランチ保護・Issueの完了状態は変更していません。
 PRは作成しますがマージしません。
+
+## 確定した実装コミットでの最終確認
+
+対象は`ff2e15ba0203613888d3bb9c31247db9d617d1fa`です。後続コミットは本記録の追記だけです。
+`sh scripts/check.sh`が成功し、Ruff・整形・mypy、pytest **51件**、working/historyの
+機密検査を確認しました。既存のStarlette TestClient非推奨警告1件は残ります。
+TestClientはサンドボックス内で45秒の上限に達して中断し、通常環境では成功しました。
+
+最終コードで専用Composeを再ビルドし、`smoke-stage2.py`と`smoke-browser.py`を実行しました。
+HLS準備は2.366秒、録画の確定まで8.010秒、TSは1,000,160 byte・時刻範囲8.210022秒でした。
+TSの区間一致・変換前後の不変、ライブ/録画のA/Vデコードも成功しました。
+Chromiumではライブ261フレーム、録画129フレーム、両方の音声サンプルを確認しています。
+安定後の5サンプルでライブ再生時刻は約4秒進み、同期目標との差は約−2.994〜−2.991秒でした。
+
+合成sessionと300秒指定の録画が稼働中に、専用コンテナだけを次の操作で異常終了・再起動しました。
+
+```sh
+docker compose -p sdr-dtv-stage2-backend kill -s SIGKILL app
+SDR_PORT=18325 SDR_ORIGIN=http://localhost:18325 \
+  docker compose -p sdr-dtv-stage2-backend up -d --wait
+```
+
+再起動後のAPIでsessionと録画が`interrupted/partial/server_restart`、保存済みbyte数が非ゼロ、
+HLS URLが無効・artifactが404、録画の履歴件数が不変、自動開始なしを確認しました。
+その後の明示的な1秒sessionは正常終了し、残存lockで永続的に塞がれていないことも確認しました。
+これは合成データを使った異常終了試験であり、実機の復元試験ではありません。
+既存の`smoke-api.py`も新しい360秒入力に対して8秒のsession期限で成功しました。
