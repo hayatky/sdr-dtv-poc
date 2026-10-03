@@ -1,9 +1,14 @@
 # sdr-dtv-poc
 
 日本の地上波をSDRで受信し、WebUIからスキャン・選局・視聴・短いTS録画を行う
-実験的なPoCです。現在は**実機を使わないバックエンド（段階2・#13〜#17）**を実装しています。
+実験的なPoCです。現在は**実機を使わないバックエンド（#13〜#17）と、模擬データで動くWebUI（#27・#28）**を実装済みです。
 合成TSのスキャン・選局、供給中のHLS配信、最大300秒の手動録画、録画の再生・
 オリジナルTSのダウンロードをAPIで操作できます。製品WebUIとの接続は#29、実機は後続です。
+
+次の作業は[Issue #29](https://github.com/hayatky/sdr-dtv-poc/issues/29)のAPI・HLS接続です。
+先行Issue #28・#14・#17は完了し、PR #31・#32はmainへ統合済みです。
+担当範囲、API項目の対応、専用の保存先を使う起動手順は[#29への引継ぎ](docs/issue-29-handoff.md)を参照してください。
+全体の進捗は[Issue #2](https://github.com/hayatky/sdr-dtv-poc/issues/2)で管理します。
 
 ## Docker Composeで合成デモを起動
 
@@ -48,6 +53,7 @@ uvだけではFFmpeg、GNU Radio、C++の受信ブロックは導入されませ
 ```sh
 sudo apt-get install ffmpeg=7:6.1.1-3ubuntu5
 uv sync --locked
+# 次の2行は初回だけ実行する。既存ファイルがある場合は下記の説明を参照する
 uv run --locked python scripts/generate-demo.py
 uv run --locked python scripts/generate-demo.py --output data/demo/demo-14.ts --channel 14
 uv run --locked uvicorn sdr_dtv_poc.app:create_app --factory \
@@ -61,8 +67,11 @@ uv run --locked uvicorn sdr_dtv_poc.app:create_app --factory \
 uv run --locked python scripts/smoke-api.py
 ```
 
-生成スクリプトは既存ファイルを上書きしません。生成済みならそのまま使い、再生成時は
-`--output data/demo-new/demo.ts`等の新しい保存先を指定して`SDR_DEMO_PATH`を変更します。
+生成スクリプトは、出力先のTSまたは同名のJSONが存在するとエラーで終了します。
+生成済みならJSONの`duration_seconds:360`と`physical_channel_label:13/14`を確認し、
+生成コマンドを省略して使います。旧8秒デモ等からの再生成は、新しいディレクトリに
+13chの`demo.ts`と14chの`demo-14.ts`を作り、`SDR_DEMO_PATH`を新しい`demo.ts`へ変更します。
+14chの入力は13chのファイル名の末尾に`-14`を加えたTSとして解決されます。
 停止はCtrl+Cです。終了を待ってから再起動してください。APIは必ず単一プロセスで使います。
 詳細は[API仕様](docs/api.md)、[受信処理の固定と診断](docs/receiver.md)を参照してください。
 
