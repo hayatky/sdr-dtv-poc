@@ -22,6 +22,14 @@ def stream(path: Path, bitrate: int) -> None:
             # The parent holds stdin open. Its death closes the pipe.
             if select.select([sys.stdin.buffer], [], [], 0)[0]:
                 return
+            while not select.select([], [sys.stdout.fileno()], [], 0.1)[1]:
+                if (
+                    select.select([sys.stdin.buffer], [], [], 0)[0]
+                    or time.monotonic() - start >= 600
+                ):
+                    return
+            if time.monotonic() - start >= 600:
+                return
             os.write(sys.stdout.fileno(), data)
             total += len(data)
             delay = start + total * 8 / bitrate - time.monotonic()

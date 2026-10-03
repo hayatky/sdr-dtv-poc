@@ -159,7 +159,7 @@ def test_missing_origin_token_and_validation(client: TestClient) -> None:
     )
     assert response.status_code == 501
     assert client.get("/api/sessions").json() == []
-    assert client.get("/api/recordings").status_code == 501
+    assert client.get("/api/recordings").json() == []
     schema = client.get("/openapi.json").json()
     assert (
         schema["components"]["schemas"]["SessionStart"]["properties"]["duration_seconds"]["maximum"]
@@ -448,3 +448,35 @@ def test_file_worker_stop_failure_is_partial(settings: Settings, failure: str) -
             await manager.close()
 
     asyncio.run(exercise())
+
+
+def test_stage2_mutations_remain_protected(client: TestClient) -> None:
+    unknown = str(uuid4())
+    for path, body in (
+        ("/api/scans", {"request_id": unknown}),
+        (f"/api/scans/{unknown}/stop", {}),
+        ("/api/recordings", {"request_id": unknown, "session_id": unknown}),
+        (f"/api/recordings/{unknown}/stop", {}),
+        (f"/api/recordings/{unknown}/playback", {}),
+    ):
+        assert client.post(path, json=body).status_code == 403
+    assert client.get("/api/scans").json() == []
+    assert client.get("/api/recordings").json() == []
+    assert client.get(f"/api/recordings/{unknown}/playback").status_code == 404
+    for channels in ([12], [53], [], [13, 13]):
+        assert (
+            client.post(
+                "/api/scans",
+                json={"request_id": unknown, "channels": channels},
+                headers=headers(client),
+            ).status_code
+            == 422
+        )
+    schema = client.get("/openapi.json").json()
+    assert (
+        schema["components"]["schemas"]["RecordingStart"]["properties"]["duration_seconds"][
+            "maximum"
+        ]
+        == 300
+    )
+    assert "post" in schema["paths"]["/api/recordings/{recording_id}/playback"]

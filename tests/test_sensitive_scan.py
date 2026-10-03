@@ -16,6 +16,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class SensitiveScanTests(unittest.TestCase):
     def setUp(self) -> None:
+        # Git hooks export GIT_DIR and related variables. Never let a disposable
+        # repository test reinitialize or commit into the invoking worktree.
+        self.git_env = {
+            key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+        }
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.repo = Path(self.temp.name)
@@ -23,13 +28,15 @@ class SensitiveScanTests(unittest.TestCase):
         self.git("config", "user.name", "Synthetic")
         self.git("config", "user.email", "test@example.invalid")
         shutil.copy(ROOT / ".gitleaks.toml", self.repo)
-        self.env = {**os.environ, "PRIVATE_IDENTIFIERS": "fixtureperson", "CI": "true"}
+        self.env = {**self.git_env, "PRIVATE_IDENTIFIERS": "fixtureperson", "CI": "true"}
         tool = shutil.which("gitleaks") or str(ROOT / "data/tools/gitleaks")
         self.assertTrue(Path(tool).is_file(), "Install the pinned Gitleaks before testing")
         self.env["PATH"] = str(Path(tool).parent) + os.pathsep + os.environ["PATH"]
 
     def git(self, *args: str) -> subprocess.CompletedProcess[bytes]:
-        return subprocess.run(["git", *args], cwd=self.repo, check=True, capture_output=True)
+        return subprocess.run(
+            ["git", *args], cwd=self.repo, env=self.git_env, check=True, capture_output=True
+        )
 
     def scan(self, mode: str, blocked: bool = True) -> subprocess.CompletedProcess[str]:
         run = subprocess.run(

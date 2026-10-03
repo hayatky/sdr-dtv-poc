@@ -18,13 +18,18 @@ from .models import (
     Artifact,
     Diagnostic,
     Diagnostics,
+    EndReason,
     Error,
     InputKind,
+    Playback,
+    Recording,
     RecordingStart,
+    Scan,
     ScanStart,
     Service,
     Session,
     SessionStart,
+    State,
 )
 from .security import Protection
 
@@ -65,6 +70,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def manager() -> Manager:
         return app.state.manager  # type: ignore[no-any-return]
+
+    @app.exception_handler(Conflict)
+    async def conflict(request: Request, exc: Conflict) -> JSONResponse:
+        return JSONResponse({"code": str(exc), "message": "Operation unavailable"}, status_code=409)
+
+    @app.exception_handler(Unavailable)
+    async def unavailable(request: Request, exc: Unavailable) -> JSONResponse:
+        return JSONResponse(
+            {"code": str(exc), "message": "Operation unavailable"},
+            status_code=501
+            if str(exc) in {"live_not_implemented", "saved_scan_not_configured"}
+            else 503,
+        )
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException) -> JSONResponse:
@@ -107,15 +125,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def bootstrap() -> dict[str, object]:
         return {
             "csrf_token": token,
-            "mode": "foundation",
+            "mode": "synthetic_backend",
             "live_available": False,
-            "hls_available": False,
-            "recording_available": False,
+            "hls_available": True,
+            "recording_available": True,
+            "scan_available": True,
+            "scan_presets": {"synthetic": [13, 14], "uhf": list(range(13, 53))},
         }
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
-        return {"status": "ok", "mode": "foundation"}
+        return {"status": "ok", "mode": "synthetic_backend"}
 
     @app.get("/api/diagnostics", response_model=Diagnostics)
     def diagnostics(input_kind: InputKind = InputKind.synthetic) -> Diagnostics:
@@ -131,7 +151,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             "ffmpeg": Diagnostic(
                 status="ok" if shutil.which("ffmpeg") else "missing",
-                code="generator_and_future_hls",
+                code="generator_and_hls",
             ),
             "board": Diagnostic(
                 status="not_required" if input_kind != InputKind.live else "not_checked",
@@ -150,21 +170,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return Diagnostics(input_kind=input_kind, checks=checks)
 
     @app.get("/api/services", response_model=list[Service])
-    def services() -> list[Service]:
-        return [
-            Service(
-                id="demo",
-                name="Synthetic Test",
-                input_kind=InputKind.synthetic,
-                service_id=1,
-                detection_stage="synthetic_definition",
-            )
-        ]
+    async def services() -> list[Service]:
+        return list(manager().scans.services.values())
 
     @app.post("/api/sessions", status_code=202, response_model=Session)
     async def start(body: SessionStart) -> Session:
         try:
-            return manager().start(body)
+            return await manager().select(body)
         except Conflict as exc:
             raise HTTPException(409, str(exc)) from None
         except Unavailable as exc:
@@ -227,52 +239,81 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             file = open_registered(settings.data_dir, relative)
             if filename.endswith(".m3u8"):
                 with file:
-                    data = file.read(64 * 1024 + 1)
+                    data = (
+                        record[0].playlist_snapshot.encode("utf-8")
+                        if record[0].playlist_snapshot is not None
+                        else file.read(64 * 1024 + 1)
+                    )
                 validate_playlist(data, record[0].members)
-                return Response(data, media_type="application/vnd.apple.mpegurl")
+                return Response(
+                    data,
+                    media_type="application/vnd.apple.mpegurl",
+                    headers={"Cache-Control": "no-store"},
+                )
         except (OSError, ValueError, UnicodeError):
             raise HTTPException(404, "artifact_not_found") from None
         return StreamingResponse(
             chunks(file), media_type="video/mp2t", background=BackgroundTask(file.close)
         )
 
-    def later() -> None:
-        raise HTTPException(501, "feature_not_implemented")
+    @app.post("/api/scans", status_code=202, response_model=Scan)
+    async def scan_start(body: ScanStart) -> Scan:
+        return manager().scans.start(body)
 
-    @app.post("/api/scans", status_code=202, response_model=Error)
-    async def scan_start(body: ScanStart) -> None:
-        later()
+    @app.get("/api/scans", response_model=list[Scan])
+    async def scans() -> list[Scan]:
+        return list(manager().scans.items.values())
 
-    @app.get("/api/scans/{scan_id}", response_model=Error)
-    async def scan_get(scan_id: UUID) -> None:
-        later()
+    @app.get("/api/scans/{scan_id}", response_model=Scan)
+    async def scan_get(scan_id: UUID) -> Scan:
+        if scan_id not in manager().scans.items:
+            raise HTTPException(404, "scan_not_found")
+        return manager().scans.items[scan_id]
 
-    @app.post("/api/scans/{scan_id}/stop", response_model=Error)
-    async def scan_stop(scan_id: UUID) -> None:
-        later()
+    @app.post("/api/scans/{scan_id}/stop", status_code=202, response_model=Scan)
+    async def scan_stop(scan_id: UUID) -> Scan:
+        await scan_get(scan_id)
+        return manager().scans.stop(scan_id)
 
-    @app.post("/api/recordings", status_code=202, response_model=Error)
-    async def recording_start(body: RecordingStart) -> None:
-        later()
+    @app.post("/api/recordings", status_code=202, response_model=Recording)
+    async def recording_start(body: RecordingStart) -> Recording:
+        await session(body.session_id)
+        return manager().recordings.start(body)
 
-    @app.get("/api/recordings", response_model=Error)
-    async def recordings() -> None:
-        later()
+    @app.get("/api/recordings", response_model=list[Recording])
+    async def recordings() -> list[Recording]:
+        return [manager().recordings.get(key) for key in manager().recordings.items]
 
-    @app.get("/api/recordings/{recording_id}", response_model=Error)
-    async def recording_get(recording_id: UUID) -> None:
-        later()
+    @app.get("/api/recordings/{recording_id}", response_model=Recording)
+    async def recording_get(recording_id: UUID) -> Recording:
+        if recording_id not in manager().recordings.items:
+            raise HTTPException(404, "recording_not_found")
+        return manager().recordings.get(recording_id)
 
-    @app.post("/api/recordings/{recording_id}/stop", response_model=Error)
-    async def recording_stop(recording_id: UUID) -> None:
-        later()
+    @app.post("/api/recordings/{recording_id}/stop", status_code=202, response_model=Recording)
+    async def recording_stop(recording_id: UUID) -> Recording:
+        record = await recording_get(recording_id)
+        if record.state == State.running:
+            manager().recordings.finish(EndReason.requested)
+        return record
 
-    @app.get("/api/recordings/{recording_id}/playback", response_model=Error)
-    async def recording_playback(recording_id: UUID) -> None:
-        later()
+    @app.post("/api/recordings/{recording_id}/playback", status_code=202, response_model=Playback)
+    async def playback_start(recording_id: UUID) -> Playback:
+        await recording_get(recording_id)
+        return manager().recordings.start_playback(recording_id)
 
-    @app.get("/api/recordings/{recording_id}/download", response_model=Error)
-    async def recording_download(recording_id: UUID) -> None:
-        later()
+    @app.get("/api/recordings/{recording_id}/playback", response_model=Playback)
+    async def recording_playback(recording_id: UUID) -> Playback:
+        await recording_get(recording_id)
+        if recording_id not in manager().recordings.playbacks:
+            raise HTTPException(404, "playback_not_started")
+        return manager().recordings.playbacks[recording_id]
+
+    @app.get("/api/recordings/{recording_id}/download")
+    async def recording_download(recording_id: UUID) -> StreamingResponse:
+        record = await recording_get(recording_id)
+        if record.partial or not record.artifact_id or not record.file_available:
+            raise HTTPException(409, "recording_unavailable")
+        return await download(record.artifact_id)
 
     return app

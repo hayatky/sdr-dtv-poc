@@ -12,18 +12,23 @@ from uuid import UUID, uuid4
 
 from .adapter import Adapter, FileAdapter, FileWorkerFailed
 from .config import Settings, Source
+from .device_lock import DeviceBusy, DeviceLock
+from .media import Media
 from .models import (
     START_GRACE,
     STOP_GRACE,
     Artifact,
     EndReason,
     InputKind,
+    MediaStatus,
     Restore,
     Session,
     SessionStart,
     Stage,
     State,
 )
+from .recording import Recordings
+from .scanning import Scans
 from .store import Store
 
 TERMINAL = {State.completed, State.failed, State.interrupted}
@@ -70,21 +75,40 @@ class Manager:
         self.stop_reason = EndReason.requested
         self.active_id: UUID | None = None
         self.storage_failed = False
+        self.device = DeviceLock(settings.device_lock_dir or settings.data_dir / "device")
+        self.deadlines: dict[UUID, float] = {}
+        self.sources: dict[UUID, Source] = {}
+        self.selection_lock = asyncio.Lock()
         for session, request in self.store.sessions():
+            request = SessionStart.model_validate_json(request).model_dump_json()
             if session.state not in TERMINAL:
                 session.state = State.interrupted
                 session.partial = True
                 session.end_reason = EndReason.server_restart
                 session.stage = Stage.cleanup
                 session.ended_at = now()
+                if session.hls:
+                    session.hls.state, session.hls.url = "interrupted", None
+                    session.hls.error_code, session.hls.error_stage = "server_restart", "cleanup"
+                    if session.hls.artifact_id:
+                        entry = self.store.artifact(str(session.hls.artifact_id))
+                        if entry:
+                            entry[0].partial = True
+                            self.store.update_artifact(entry[0])
                 if session.input_kind == InputKind.live:
                     session.restore = Restore.unknown
                 self.store.save_session(session, request)
             self.sessions[session.id] = session
             self.requests[session.request_id] = (session.id, request)
+        self.recordings = Recordings(self)
+        self.scans = Scans(self)
 
     def persist(self, session: Session) -> None:
-        self.store.save_session(session, self.requests[session.request_id][1])
+        try:
+            self.store.save_session(session, self.requests[session.request_id][1])
+        except sqlite3.Error:
+            self.storage_failed = True
+            raise
 
     def start(self, request: SessionStart) -> Session:
         serialized = request.model_dump_json()
@@ -93,24 +117,23 @@ class Manager:
             if previous[1] != serialized:
                 raise Conflict("request_id_reused")
             return self.sessions[previous[0]]
-        if self.storage_failed:
-            raise Unavailable("database_error")
-        if any(s.restore in {Restore.unknown, Restore.failed} for s in self.sessions.values()):
-            raise Conflict("restore_unverified")
-        if self.task and not self.task.done():
-            raise Conflict("session_busy")
+        self.check_idle()
         if len(self.sessions) >= 1000:
             raise Conflict("session_history_limit")
-        if request.input_kind == InputKind.live:
+        service = self.scans.services.get(request.service_key) if request.service_key else None
+        if request.service_key and service is None:
+            raise Unavailable("service_not_found")
+        kind = service.input_kind if service else request.input_kind
+        source_id = service.source_id if service else request.source_id
+        if kind == InputKind.live:
             raise Unavailable("live_not_implemented")
-        if request.input_kind == InputKind.synthetic:
-            if request.source_id != "demo":
-                raise Unavailable("source_not_registered")
-            source = Source(self.settings.demo_path, self.settings.demo_bitrate)
-        else:
-            if request.source_id not in self.settings.saved_sources:
-                raise Unavailable("source_not_registered")
-            source = self.settings.saved_sources[request.source_id]
+        source = (
+            self.synthetic_source(source_id)
+            if kind == InputKind.synthetic
+            else self.settings.saved_sources.get(source_id)
+        )
+        if source is None:
+            raise Unavailable("source_not_registered")
         if not source.path.is_file():
             raise Unavailable("source_missing")
         if shutil.disk_usage(self.settings.data_dir).free < self.settings.min_free_bytes:
@@ -118,8 +141,11 @@ class Manager:
         session = Session(
             id=uuid4(),
             request_id=request.request_id,
-            input_kind=request.input_kind,
-            source_id=request.source_id,
+            input_kind=kind,
+            source_id=source_id,
+            service=service,
+            selected_service_id=service.service_id if service else request.selected_service_id,
+            hls=MediaStatus() if request.enable_hls else None,
             state=State.starting,
             duration_seconds=request.duration_seconds,
             started_at=now(),
@@ -127,9 +153,11 @@ class Manager:
                 datetime.now(UTC) + timedelta(seconds=request.duration_seconds)
             ).isoformat(),
         )
+        self.acquire_device()
         try:
             self.store.save_session(session, serialized)
         except sqlite3.Error:
+            self.device.release()
             self.storage_failed = True
             raise Unavailable("database_error") from None
         self.sessions[session.id] = session
@@ -138,8 +166,64 @@ class Manager:
         self.stop_event = asyncio.Event()
         self.stop_reason = EndReason.requested
         deadline = self.clock() + request.duration_seconds
-        self.task = asyncio.create_task(self.run(session, self.adapter_factory(source), deadline))
+        self.deadlines[session.id], self.sources[session.id] = deadline, source
+        adapter = self.adapter_factory(source)
+        if isinstance(adapter, FileAdapter):
+            adapter.lock_fd = self.device.fd
+        self.task = asyncio.create_task(self.run(session, adapter, deadline))
         return session
+
+    def synthetic_source(self, source_id: str) -> Source | None:
+        if source_id == "demo":
+            return Source(self.settings.demo_path, self.settings.demo_bitrate)
+        if source_id == "demo-14":
+            return Source(
+                self.settings.demo_path.with_name(self.settings.demo_path.stem + "-14.ts"),
+                self.settings.demo_bitrate,
+            )
+        return None
+
+    def check_idle(self) -> None:
+        if self.storage_failed:
+            raise Unavailable("database_error")
+        if any(
+            s.restore in {Restore.pending, Restore.unknown, Restore.failed}
+            for s in self.sessions.values()
+        ):
+            raise Conflict("restore_unverified")
+        if self.recordings.active:
+            raise Conflict("recording_busy")
+        if self.task and not self.task.done():
+            raise Conflict("session_busy")
+        if self.scans.task and not self.scans.task.done():
+            raise Conflict("scan_busy")
+
+    def acquire_device(self) -> None:
+        try:
+            self.device.acquire()
+        except DeviceBusy as exc:
+            raise Conflict(str(exc)) from None
+
+    def remaining(self, session: Session) -> float:
+        source = self.sources[session.id]
+        source_remaining = (
+            max(0, source.path.stat().st_size - session.bytes_received) * 8 / source.bitrate
+        )
+        return min(self.deadlines[session.id] - self.clock(), source_remaining)
+
+    async def select(self, request: SessionStart) -> Session:
+        async with self.selection_lock:
+            if request.request_id in self.requests:
+                return self.start(request)
+            if request.service_key:
+                if request.service_key not in self.scans.services:
+                    raise Unavailable("service_not_found")
+                if self.recordings.active:
+                    raise Conflict("recording_busy")
+                if self.task and not self.task.done() and self.active_id:
+                    self.stop(self.active_id)
+                    await self.task
+            return self.start(request)
 
     def stop(self, session_id: UUID) -> Session:
         session = self.sessions[session_id]
@@ -158,11 +242,25 @@ class Manager:
         reason = EndReason.worker_failed
         pending = b""
         digest = hashlib.sha256()
+        media = (
+            Media(
+                self.settings,
+                self.store,
+                session.id,
+                session.selected_service_id,
+                session.hls,
+                lambda: self.persist(session),
+            )
+            if session.hls
+            else None
+        )
         read_task: asyncio.Task[bytes] | None = None
         stop_task: asyncio.Task[bool] | None = None
         try:
             directory.mkdir(parents=True)
             await asyncio.wait_for(adapter.start(), min(START_GRACE, session.duration_seconds))
+            if media:
+                await media.start()
             session.state = State.stopping if self.stop_event.is_set() else State.running
             session.stage = Stage.transport
             self.persist(session)
@@ -215,6 +313,11 @@ class Manager:
                         break
                     session.stage = Stage.storage
                     output.write(data)
+                    self.recordings.write(data)
+                    if media:
+                        media.offer(data)
+                    if data and session.ts_started_at is None:
+                        session.ts_started_at = now()
                     digest.update(data)
                     session.bytes_received += len(data)
                     session.stage = Stage.transport
@@ -235,6 +338,17 @@ class Manager:
                 if task and not task.done():
                     task.cancel()
             await asyncio.gather(*(t for t in (read_task, stop_task) if t), return_exceptions=True)
+            if self.recordings.active:
+                self.recordings.finish(
+                    EndReason.server_shutdown
+                    if reason == EndReason.server_shutdown
+                    else EndReason.source_ended
+                )
+            if media:
+                try:
+                    await media.close()
+                except sqlite3.Error:
+                    self.storage_failed = True
             failure_stage = session.stage
             session.stage = Stage.cleanup
             try:
@@ -247,6 +361,11 @@ class Manager:
                     failure_stage = Stage.cleanup
             except Exception:
                 session.restore = Restore.unknown
+            if session.restore in {Restore.pending, Restore.unknown, Restore.failed}:
+                try:
+                    self.device.block(session.id)
+                except OSError:
+                    self.storage_failed = True
             if self.storage_failed:
                 reason = EndReason.database_error
             success = reason in {EndReason.eof, EndReason.requested, EndReason.deadline}
@@ -306,6 +425,7 @@ class Manager:
                     pass
             finally:
                 self.active_id = None
+                self.device.release()
 
     async def close(self) -> None:
         try:
@@ -313,6 +433,9 @@ class Manager:
                 self.stop_reason = EndReason.server_shutdown
                 self.stop_event.set()
                 await self.task
+            await self.scans.close()
+            await self.recordings.close()
         finally:
+            self.device.release()
             self.store.close()
             self.lock.close()

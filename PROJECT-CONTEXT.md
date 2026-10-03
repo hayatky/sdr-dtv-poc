@@ -6,14 +6,17 @@
 
 ## 2026-10-04の実装状況
 
-現在の作業入口は本リポジトリの全体Issue #2、基盤Issue #3、子Issue #7〜#12です。
+現在の作業入口は本リポジトリの全体Issue #2と、WebUIのAPI接続Issue #29です。
+段階2のバックエンド（#13〜#17）と、模擬データで動くWebUI（#27・#28）を実装しました。
+具体的なAPIとの差、起動手順、検証項目は[#29への引継ぎ](docs/issue-29-handoff.md)を参照してください。
 既定ブランチはmainで、PR #1は`ef240803845cdad23c3f76216bdc5e7c7b2fccef`へ統合済みです。
 以下の初期記録にある研究元#63の範囲を、そのまま現在の担当範囲とは扱いません。
 
 Issue #3の作業ではFastAPI・SQLite・合成TSの子ワーカー・操作保護・IDによる配信、
 Docker Compose/uv起動と仮のAPI入口を追加しました。固定native環境は機器なしで
-再構築・import診断しています。APIのlive入力、スキャン・HLS生成・録画・テレビ視聴UIは
-後続Issueです。WebUI本体は#18・#27〜#29の専門担当に分かれています。
+再構築・import診断しています。合成入力のスキャン・HLS生成・録画・録画再生はAPIから利用できます。
+三つのタブのWebUIは表示確認用の模擬データを使っており、API・HLSへはまだ接続していません。
+APIのlive入力、実機での受信・復元・視聴・録画は後続Issueです。
 
 現行仕様は[API](docs/api.md)、[受信処理](docs/receiver.md)、
 [検証記録](docs/issue-3-validation.md)、[README](README.md)を参照してください。

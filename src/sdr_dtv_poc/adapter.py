@@ -22,6 +22,7 @@ class FileAdapter:
 
     def __init__(self, source: Source):
         self.source = source
+        self.lock_fd: int | None = None
         self.process: asyncio.subprocess.Process | None = None
 
     async def start(self) -> None:
@@ -35,6 +36,7 @@ class FileAdapter:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
+            pass_fds=(self.lock_fd,) if self.lock_fd is not None else (),
         )
 
     async def read(self) -> bytes:

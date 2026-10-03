@@ -38,7 +38,7 @@ sh scripts/check.sh
 `pyproject.toml`のdevグループにRuff、mypy、pytestをまとめています。
 HTTPXはAPIテストと同時に追加しました。FastAPI・Pydantic・Uvicornを実行依存として
 `uv.lock`で管理します。API・合成TSアダプター・Compose起動は実装済みです。
-HLS生成・録画・実機入力・WebUI本体は後続Issueです。起動はREADME、接点は
+合成/保存TSからのHLS生成・録画・再生も実装済みです。実機入力・WebUI接続は後続Issueです。起動はREADME、接点は
 [API仕様](api.md)、固定native環境は[受信処理](receiver.md)を参照してください。
 
 ## 日常のコマンド
@@ -125,3 +125,27 @@ HTTPX 0.28.1を使うTestClientにはStarletteから非推奨警告が出ます�
 実行しません。保存先はGit外で、APIの終了時に子ワーカーを回収します。
 ローカルの一時テストは一意の保存先・ポート・Compose project名を使い、他の受信処理や
 利用者のデータを停止・削除しません。
+
+
+## 段階2のバックエンド検証
+
+[実装と検証記録](issue-4-backend-validation.md)に検証対象、成功、失敗・未実施を記載します。
+`scripts/smoke-stage2.py`は起動済みの専用APIで合成入力だけを操作し、FFmpegによる
+供給中HLS・録画再生のA/Vを検査します。`--source data/demo/demo.ts`を渡せば録画区間と
+入力のbyte一致も確認します。完了ファイルは保存し、既存データを削除しません。
+
+ブラウザーの自動検証は開発補助の`scripts/smoke-browser.py`です。製品UIを使わず、
+同一Originで既存のhls.jsを読み、videoのフレーム数、時刻の進行、Web Audioの非ゼロ音声、
+配信端との差を記録します。人による視聴確認にはしません。
+
+```sh
+# 任意の補助検証。既存のChromiumと必要なOSライブラリを使う。
+# プロジェクト依存・イメージへPlaywrightを追加しない。
+uv run --no-project --python 3.12 --with playwright==1.58.0 \
+  python scripts/smoke-browser.py --origin http://localhost:18324 \
+  --chromium /path/to/chromium
+```
+
+ブラウザー検証はAPIの専用保存先を使い、録画と再生用派生物を作ります。ffprobe・ffmpegの
+ログ全文は公開せず、検査スクリプトは成功の指標または失敗理由の分類を出力します。
+通常のpytestはFFmpeg/Chromiumの導入成功を意味しません。補助検証を別に実施してください。

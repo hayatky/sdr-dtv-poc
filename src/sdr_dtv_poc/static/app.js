@@ -88,6 +88,7 @@
     output_limit: 'ファイルサイズの上限',
     server_shutdown: 'サーバーの停止',
     server_restart: 'サーバーの再起動',
+    source_ended: '受信が先に終了',
   };
 
   const SCAN_STAGES = {
@@ -268,6 +269,7 @@
 
   let timer = null;
   let polling = false;
+  let pageHidden = false;
 
   function markOnline() {
     state.conn.status = 'ok';
@@ -283,12 +285,13 @@
 
   function schedule() {
     clearTimeout(timer);
+    if (pageHidden) return;
     const busy = sessionActive() || scanning() || recording() || state.watch.action;
     timer = setTimeout(refresh, offline() || !busy ? 5000 : 1000);
   }
 
   async function refresh() {
-    if (polling) return;
+    if (polling || pageHidden) return;
     polling = true;
     clearTimeout(timer);
     try {
@@ -1193,10 +1196,12 @@
         if (TABS.some(t => t.id === id) && id !== state.tab) setTab(id);
       });
       window.addEventListener('pagehide', () => {
+        pageHidden = true;
         clearTimeout(timer);
         clearTimeout(playerTimer);
       });
       window.addEventListener('pageshow', event => {
+        pageHidden = false;
         if (event.persisted) refresh();
       });
       return () => el('div', {class: 'app'},

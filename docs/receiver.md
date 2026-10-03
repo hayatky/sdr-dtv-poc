@@ -113,3 +113,36 @@ Mode/GI、変調、符号率、TIは実測TMCCから決める必要がありま�
 
 未実施: 機器への到達性、baseline読取、実機排他の共有、RX設定・復元、他物理ch、
 受信中のHLS、300秒録画、Mac/Safariでの再生。native importの成功はこれらの証拠ではありません。
+
+## 段階2で追加した共通排他と終了処理（#13）
+
+研究元の固定コミットの`src/receiver/jobs.py`は`Jobs.__init__`で
+`data/receiver/.device.lock`を`flock(LOCK_EX | LOCK_NB)`し、`Jobs.start`で同じFDを
+workerへ継承します。`recovery-required.json`がある場合と、復元pending/unknown/failedの
+記録がある場合は開始を遮断します。`recovery.py`は同じ排他を取得し、baseline・設定後の値・
+現在値を照合します。既存の`recovery.json`がある場合は根拠のない再試行を拒否します。
+
+PoCの`device_lock.py`はこのファイル名・flock・FD継承と互換の境界を独立実装しました。
+研究元のwrapperや実機操作コードを複製していません。既定では合成検証専用の
+`SDR_DATA_DIR/device`を使います。**この既定値は研究機器との共通排他ではありません。**
+将来の実機統合ではホスト側で`SDR_DEVICE_LOCK_DIR`を研究CLIと同じディレクトリへ指定し、
+コンテナでも同じinodeをbind mountする必要があります。APIからその登録や権限変更はしません。
+今回の検証では一時ディレクトリと模擬子プロセスだけを使い、実際の研究用lockには触れていません。
+
+- sessionとscanは同じ排他を使います。入力子ワーカーが継承FDを持つ間は、親が終了しても
+  別プロセスは取得できません。APIの保存先が違っても共通のlock先なら競合します。
+- 合成入力workerはstdin切断を監視し、出力の停滞時にも終了を確認します。独立した600秒上限も
+  持ちます。FFmpeg/FFprobeはLinuxの親終了通知で強制回収し、通常終了では必ずwaitします。
+- 停止では録画終了、HLS子回収、入力子回収とadapterの復元結果、DB確定、lock FDを閉じる順で
+  処理します。`LOCK_UN`で子の所有を解除しません。
+- 復元不明時はPoCのジョブIDを含む`recovery-required.json`を排他保持中に作り、次の開始を遮断します。
+  既存の研究側の記録は上書きしません。PoCのIDを研究側の復旧ジョブとして扱うことはできません。
+- 再起動時は未完了session/scanをinterrupted、録画をinterrupted/partialにします。HLS URLを
+  無効化してartifactの公開も止め、RX・変換を自動再開しません。残った入力子の排他が解放される
+  前の開始はdevice_busyです。別プロセスをPIDだけで判断してkillする機能はありません。
+
+実機のbaseline取得、復元書込みと独立したreadback、実機workerへの共通FD継承、デバイスの
+到達性・切断復旧は未実装/未検証です。`live`は引き続き501です。`verified`を返す模擬adapterの
+成功は、実機の復元成功ではありません。実機統合時は、録画確定時刻、全子の終了コード、
+CLOSE結果、baseline/現在値の一致、lockの次プロセスによる再取得を照合してください。
+解除は作業者が証拠を確認する手順として別途設計し、HTTP解除や自動再試行を追加しないでください。

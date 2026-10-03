@@ -256,7 +256,7 @@
         rec.elapsed_seconds = RECORDING_LIMIT;
         endRecording(rec, 'completed', 'deadline', false);
       } else if (session && session.state !== 'running') {
-        endRecording(rec, 'completed', 'requested', false);
+        endRecording(rec, 'failed', 'source_ended', true);
       }
     }
 
@@ -453,6 +453,10 @@
           const session = world.sessions.get(id);
           if (!session) return fail(404, 'session_not_found');
           if (session.state === 'starting' || session.state === 'running') {
+            const recording = world.recordings.find(r => r.id === world.activeRecording);
+            if (recording && recording.session_id === session.id) {
+              endRecording(recording, 'failed', 'source_ended', true);
+            }
             session.state = 'stopping';
             session.stage = 'cleanup';
             session.end_reason = 'requested';

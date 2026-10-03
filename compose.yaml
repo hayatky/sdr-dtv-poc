@@ -11,7 +11,6 @@ services:
       - app-data:/data
     tmpfs:
       - /tmp:size=32m,mode=1777
-      - /run/sdr-hls:size=64m,uid=10001,gid=10001,mode=0700
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
