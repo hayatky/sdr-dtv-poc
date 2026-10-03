@@ -36,10 +36,10 @@ sh scripts/check.sh
 ```
 
 `pyproject.toml`のdevグループにRuff、mypy、pytestをまとめています。
-HTTPXはAPIテストの実装時に追加します。
-FastAPI・Pydantic・Uvicorn等の実行依存は、
-アプリ実装で使い始める際に`uv add`で追加します。
-現段階はツールと合成検証のみで、API・mock受信・HLS・Compose起動は未実装です。
+HTTPXはAPIテストと同時に追加しました。FastAPI・Pydantic・Uvicornを実行依存として
+`uv.lock`で管理します。API・合成TSアダプター・Compose起動は実装済みです。
+HLS生成・録画・実機入力・WebUI本体は後続Issueです。起動はREADME、接点は
+[API仕様](api.md)、固定native環境は[受信処理](receiver.md)を参照してください。
 
 ## 日常のコマンド
 
@@ -63,8 +63,8 @@ sh scripts/check.sh
 hookは自動修正しません。push前hookとCIは`sh scripts/check.sh`を実行します。
 cloneごとにhookの有効化が必要です。
 
-mypyは現在`scripts/`と`tests/`をstrictで検査します。
-アプリを追加する際はAPI・状態管理・adapterの境界を優先して対象を決めてください。
+mypyは`src/`・`scripts/`・`tests/`をstrictで検査します。
+API・状態管理・アダプターを検査対象へ追加しました。
 外部nativeモジュールの型不足は
 該当moduleのstubや限定したoverrideで扱い、全体の型検査を無効にしません。
 `.editorconfig`で文字コード・改行・インデントも共有します。
@@ -82,15 +82,15 @@ Python依存導入とは別です。uvの管理PythonからOS導入のGNU Radio�
 共有ライブラリ、ライセンスとビルド手順を確認してadapterの実行環境を決めます。
 `--system-site-packages`による暗黙の取り込みを標準にはしません。
 
-通常のテストとCIでは実機を操作しません。現在のテストは合成データだけを使う
-機密検査の回帰試験です。アプリ実装時には同じadapterの入出力仕様を持つmockで、
-開始・停止、単調時計による300秒期限、排他、異常終了、再起動時の回収を検証します。
+通常のテストとCIでは実機を操作しません。機密検査に加え、合成TSによるAPI、
+開始・停止・EOF・session期限・排他・異常終了・DB障害・再起動時の回収と
+Host/Origin/CSRF・ファイル配信を検査します。300秒録画そのものの検証は#16/#19です。
 期限の試験は時計を注入して実時間300秒を待たずに行います。
 mock成功と実機RX・受信中A/Vの成功を分けて記録します。
 
 CI設定は`.github/workflows/sensitive-data.yml`です。
-GitHubへ反映・実行成功を確認した後、既定ブランチの保護で
-`Development checks / checks`を必須checkに設定してください。
+Actionsは現在無効で、今回も有効化しません。非公開設定とブランチ保護も変更しません。
+将来これらを変える場合は管理者の明示的な承認を得て、実際のCI結果を確認します。
 fork PRのSecret制約は公開前チェックの手順に従います。
 
 ## 導入時の検証記録
@@ -113,3 +113,15 @@ pytestの合成回帰試験は10件成功し、機密検査はコミット対象
 [PR #1](https://github.com/hayatky/sdr-dtv-poc/pull/1)にまとめました。
 GitHub Actionsはリポジトリ側で無効になっており、CIは未実行です。
 有効化の明示的な承認を得てからCIを確認します。既定ブランチへの統合は別の操作です。
+
+## Issue #3で追加した起動環境（2026-10-04）
+
+[検証記録](issue-3-validation.md)に対象の状態・コマンド・成功・制限を記録します。
+追加のPython依存は[一覧](dependencies.md)を参照してください。
+HTTPX 0.28.1を使うTestClientにはStarletteから非推奨警告が出ますが、現行の検証は成功しています。
+依存の更新時に代替クライアントの互換性を確認します。
+
+単一APIプロセスから合成/保存TSのPythonワーカーを起動します。重い復調をAPI内で
+実行しません。保存先はGit外で、APIの終了時に子ワーカーを回収します。
+ローカルの一時テストは一意の保存先・ポート・Compose project名を使い、他の受信処理や
+利用者のデータを停止・削除しません。

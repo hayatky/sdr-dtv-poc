@@ -1,15 +1,19 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-.git
-.env
-.env.*
-.private-identifiers
-data
-artifacts
-*.ts
-*.iq
-*.db
-*.sqlite*
-*.log
-gitleaks-report.*
-.venv
-__pycache__
+# Allow only inputs deliberately copied into the demo image.
+**
+!Dockerfile
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!THIRD_PARTY_NOTICES.md
+!src/
+!src/sdr_dtv_poc/
+!src/sdr_dtv_poc/*.py
+!src/sdr_dtv_poc/static/
+!src/sdr_dtv_poc/static/*.html
+!src/sdr_dtv_poc/static/*.js
+!scripts/
+!scripts/generate-demo.py
+!src/sdr_dtv_poc/static/vendor/
+!src/sdr_dtv_poc/static/vendor/*

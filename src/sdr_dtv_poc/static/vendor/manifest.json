@@ -1,0 +1,40 @@
+[
+  {
+    "name": "vue.runtime.global.prod.js",
+    "package": "vue",
+    "version": "3.5.22",
+    "source": "https://registry.npmjs.org/vue/-/vue-3.5.22.tgz",
+    "sha256": "59c252182a500bd9453f21391bb8c448ac7dd23512502ae1b56e61943f52812d",
+    "modified": false
+  },
+  {
+    "name": "vue.LICENSE",
+    "package": "vue",
+    "version": "3.5.22",
+    "source": "https://registry.npmjs.org/vue/-/vue-3.5.22.tgz",
+    "sha256": "1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175",
+    "modified": false
+  },
+  {
+    "name": "hls.min.js",
+    "package": "hls.js",
+    "version": "1.6.13",
+    "source": "https://registry.npmjs.org/hls.js/-/hls.js-1.6.13.tgz",
+    "sha256": "7c47cd97d7a6e7b98d9623dd8ed9a6d45af4be4085e0c2001cd7175c2b4cfb07",
+    "modified": false
+  },
+  {
+    "name": "hls.LICENSE",
+    "package": "hls.js",
+    "version": "1.6.13",
+    "source": "https://registry.npmjs.org/hls.js/-/hls.js-1.6.13.tgz",
+    "sha256": "ca8773cf798c7ed997d4dd7c8e23c348699f8d5b7462636694cc14de6cda12db",
+    "modified": false
+  },
+  {
+    "name": "Apache-2.0.txt",
+    "source": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "modified": false
+  }
+]
