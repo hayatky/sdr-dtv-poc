@@ -50,7 +50,27 @@ docker run --rm --network none --read-only --cap-drop ALL \
   --user 10001:10001 \
   -v "$PWD/data/receiver-build/files:/receiver:ro" \
   sdr-dtv-native-wideband:issue3 python3 /receiver/wideband/file_receiver.py --help
+
+# 合成IQで復調処理の組立て・入力・EOFを確認（実機と放送素材は使わない）
+uv run --locked python scripts/smoke-receiver.py
 ```
+
+`smoke-receiver.py`は1,048,576標本（8 MiB）のゼロ値の`cf32_le`を一時生成し、
+B階層の処理を30秒の上限付きで起動します。ネットワーク・デバイスを接続せず、
+非rootで動かし、出力と合成IQは終了後に一時ディレクトリごと削除します。
+無信号なので、受信処理の終了コード1、`unverified_no_valid_tmcc`、有効TMCC 0件、
+TS出力0 byteを期待します。この結果を確認した検査スクリプトは終了コード0を返します。
+復調処理の接続と有限入力の終了を確認するもので、正常な放送波の復調・TS回復や
+実機での受信成功を示す試験ではありません。
+
+importと`--help`だけではFFTWの初期化を確認できません。GNU Radio 3.10.9.2は
+FFTWの一時ファイルを`appdata_path()`へ作るため、読み取り専用コンテナの既定の
+ホームディレクトリでは復調処理の起動に失敗します。検査スクリプトはコンテナ内の
+子プロセスだけ`env -u HOME -u APPDATA`で起動し、書き込み先を32 MiBの`/tmp` tmpfsへ
+切り替えます。ホストの環境変数や権限は変更しません。後続のnativeワーカーにも
+書き込み可能な一時領域が必要です。根拠はGNU Radioの
+[FFTW初期化](https://github.com/gnuradio/gnuradio/blob/v3.10.9.2/gr-fft/lib/fft.cc)と
+[appdata_path](https://github.com/gnuradio/gnuradio/blob/v3.10.9.2/gnuradio-runtime/lib/sys_paths.cc)です。
 
 `prepare-receiver.py`はHEADや未コミット変更を使わず指定Gitオブジェクトを読み、
 ビルド入力4ファイルのSHA-256を照合します。出力は既存ファイルへ上書きしません。

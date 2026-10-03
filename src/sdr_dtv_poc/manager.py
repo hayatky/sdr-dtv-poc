@@ -10,7 +10,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from .adapter import Adapter, FileAdapter
+from .adapter import Adapter, FileAdapter, FileWorkerFailed
 from .config import Settings, Source
 from .models import (
     START_GRACE,
@@ -239,6 +239,12 @@ class Manager:
             session.stage = Stage.cleanup
             try:
                 session.restore = await asyncio.wait_for(adapter.stop(), STOP_GRACE)
+            except FileWorkerFailed:
+                session.restore = Restore.not_required
+                # Preserve an earlier input/storage failure and its diagnostic stage.
+                if reason in {EndReason.eof, EndReason.requested, EndReason.deadline}:
+                    reason = EndReason.worker_failed
+                    failure_stage = Stage.cleanup
             except Exception:
                 session.restore = Restore.unknown
             if self.storage_failed:

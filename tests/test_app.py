@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import asyncio
 import hashlib
+import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -10,10 +11,11 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from sdr_dtv_poc.adapter import FileAdapter
 from sdr_dtv_poc.app import create_app
-from sdr_dtv_poc.config import Settings
+from sdr_dtv_poc.config import Settings, Source
 from sdr_dtv_poc.manager import Conflict, Manager
-from sdr_dtv_poc.models import Artifact, EndReason, Restore, SessionStart, State
+from sdr_dtv_poc.models import Artifact, EndReason, Restore, SessionStart, Stage, State
 
 ORIGIN = "http://localhost:8000"
 PACKET = b"\x47\x1f\xff\x10" + b"\xff" * 184
@@ -395,3 +397,50 @@ def test_non_ascii_token_rejected(client: TestClient) -> None:
     )
     assert response.status_code == 403
     assert client.get("/api/sessions").json() == []
+
+
+@pytest.mark.parametrize("failure", ["nonzero_exit", "forced_exit", "early_exit"])
+def test_file_worker_stop_failure_is_partial(settings: Settings, failure: str) -> None:
+    class StopFailureAdapter(FileAdapter):
+        async def start(self) -> None:
+            tail = {
+                "nonzero_exit": "sys.stdin.buffer.read(); sys.exit(7)",
+                "forced_exit": "time.sleep(30)",
+                "early_exit": "sys.exit(7)",
+            }[failure]
+            self.process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                f"import os, sys, time; os.write(1, {PACKET!r}); {tail}",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+
+    async def exercise() -> None:
+        adapter = StopFailureAdapter(Source(settings.demo_path, settings.demo_bitrate))
+        manager = Manager(settings, adapter_factory=lambda _: adapter)
+        try:
+            session = manager.start(SessionStart(request_id=uuid4()))
+            async with asyncio.timeout(5):
+                while not session.bytes_received or (
+                    failure == "early_exit" and session.state != State.failed
+                ):
+                    await asyncio.sleep(0.01)
+            manager.stop(session.id)
+            assert manager.task
+            await asyncio.wait_for(manager.task, 8)
+            assert adapter.process and adapter.process.returncode not in (None, 0)
+            assert session.state == State.failed and session.partial
+            assert session.end_reason == EndReason.worker_failed
+            assert session.error_stage == (
+                Stage.transport if failure == "early_exit" else Stage.cleanup
+            )
+            assert session.restore == Restore.not_required
+            assert session.artifact_id is None
+            assert manager.store.sessions()[0][0] == session
+            assert manager.store.db.execute("SELECT count(*) FROM artifacts").fetchone()[0] == 0
+        finally:
+            await manager.close()
+
+    asyncio.run(exercise())

@@ -67,6 +67,8 @@ starting → running → stopping → completed
 - APIのHTTP終了猶予10秒、起動中最大15秒＋子回収5秒を考慮し、Composeは35秒待つ。
 - EOF、手動停止、session期限は正常終了。ワーカー故障、容量不足、出力上限、DB失敗、
   サーバー停止はpartial。再起動時はinterruptedとして回収し、古い成功へ上書きしない。
+  手動停止・期限到達でも子が非zeroで終了した場合や強制終了した場合は、
+  `failed/partial/worker_failed`とし、完了artifactを登録しない。
 - `restore=unknown/failed`は新規開始を409で遮断。合成/保存TSは`not_required`。
   DB書き込み失敗時も開始を遮断し、失敗したメタデータを成功と返さない。
 - 一つのsession出力は80,000,000 byteまで、空き容量128 MiB未満で停止する。
