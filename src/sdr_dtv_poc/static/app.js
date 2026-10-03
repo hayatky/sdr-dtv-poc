@@ -126,6 +126,7 @@
 
   const SCAN_PRESETS = [
     {id: 'synthetic', label: '合成TSのプリセット'},
+    {id: 'live', label: '実機の登録済みチャンネル'},
     {id: 'all', label: 'UHFの全範囲（13〜52ch）', from: 13, to: 52},
     {id: 'low', label: '低い側（13〜32ch）', from: 13, to: 32},
     {id: 'high', label: '高い側（33〜52ch）', from: 33, to: 52},
@@ -273,8 +274,8 @@
 
   function scanRange() {
     const f = state.scanForm;
-    if (f.preset === 'synthetic') {
-      const channels = state.bootstrap?.scan_presets?.synthetic || [];
+    if (f.preset === 'synthetic' || f.preset === 'live') {
+      const channels = state.bootstrap?.scan_presets?.[f.preset] || [];
       return {ok: channels.length > 0, channels, from: channels[0], to: channels.at(-1), message: '接続情報を取得しています。'};
     }
     const preset = SCAN_PRESETS.find(p => p.id === f.preset);
@@ -423,7 +424,8 @@
   function startScan() {
     const range = scanRange();
     if (!range.ok || blockReason('scan')) return;
-    return mutate(state.scan, () => api.startScan(range.channels, api.newRequestId()), next => { state.scan.current = next; });
+    const kind = state.scanForm.preset === 'live' ? 'live' : 'synthetic';
+    return mutate(state.scan, () => api.startScan(range.channels, api.newRequestId(), kind), next => { state.scan.current = next; });
   }
   function stopScan() {
     if (!state.scan.current) return;
@@ -738,7 +740,9 @@
     const reason = running ? null : blockReason('scan');
     return el('section', {class: 'panel', 'aria-labelledby': 'scan-title'},
       el('h3', {id: 'scan-title'}, '2. 局を探す（スキャン）'),
-      el('p', null, '合成TSから局を探します。チャンネルは架空の割当てで、電波の検出ではありません。最大3分で終了します。'),
+      el('p', null, f.preset === 'live'
+        ? '実測した受信設定が登録されているチャンネルを調べます。最大3分で終了します。'
+        : '合成TSから局を探します。チャンネルは架空の割当てで、電波の検出ではありません。最大3分で終了します。'),
       blockNotice(reason),
       el('fieldset', {class: 'choice', disabled: running},
         el('legend', null, '調べる範囲'),
@@ -903,10 +907,11 @@
 
   function phaseNotice(phase) {
     const w = state.watch;
+    const metrics = session()?.receiver_metrics;
     if (phase === 'error') return errorNotice(w.error);
     if (phase === 'cas_failed') {
       return notice('danger', 'カードによる復号に失敗しました',
-        '入力の映像を復号できません。外部CASは未接続です。入力元と対応状況を確認してください。');
+        '入力の映像を復号できません。外部CASとカードの接続状態を確認してください。');
     }
     if (phase === 'hls_failed') {
       return notice('danger', '映像の変換に失敗しました',
@@ -923,7 +928,12 @@
         return notice('warn', '受信が途中で終了しました', `理由：${END_REASONS[s.end_reason] || '不明'}。もう一度局を選ぶと受信をやり直します。`);
       }
     }
-    return w.error && phase !== 'error' ? errorNotice(w.error) : null;
+    if (w.error && phase !== 'error') return errorNotice(w.error);
+    if (metrics?.rs_omitted_words_estimate > 0) {
+      return notice('warn', '受信データに欠落があります',
+        `復調処理で取り出せなかったデータの推定数：${metrics.rs_omitted_words_estimate}。映像や音声が乱れる場合があります。`);
+    }
+    return null;
   }
 
   function renderRecordingBox() {

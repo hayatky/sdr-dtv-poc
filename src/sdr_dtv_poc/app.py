@@ -126,17 +126,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def bootstrap() -> dict[str, object]:
         return {
             "csrf_token": token,
-            "mode": "synthetic_backend",
-            "live_available": False,
+            "mode": "live_backend" if settings.live else "synthetic_backend",
+            "live_available": settings.live is not None,
             "hls_available": True,
             "recording_available": True,
             "scan_available": True,
-            "scan_presets": {"synthetic": [13, 14], "uhf": list(range(13, 53))},
+            "scan_presets": {
+                "synthetic": [13, 14],
+                "uhf": list(range(13, 53)),
+                "live": sorted({p.channel for p in settings.live.profiles.values()})
+                if settings.live
+                else [],
+            },
         }
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
-        return {"status": "ok", "mode": "synthetic_backend"}
+        return {"status": "ok", "mode": "live_backend" if settings.live else "synthetic_backend"}
 
     @app.get("/api/diagnostics", response_model=Diagnostics)
     def diagnostics(input_kind: InputKind = InputKind.synthetic) -> Diagnostics:
@@ -165,7 +171,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             "cas": Diagnostic(
                 status="not_required" if input_kind == InputKind.synthetic else "not_checked",
-                code="external_cas_not_configured",
+                code="external_cas_configured_not_probed"
+                if settings.cas_executable
+                else "external_cas_not_configured",
             ),
         }
         return Diagnostics(input_kind=input_kind, checks=checks)

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Finite file-based scan; no RF or TMCC success is inferred from a saved TS."""
+"""Finite file/profile scan; saved TS never implies current RF reception."""
 
 import asyncio
 import json
@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
+from .adapter import LiveAdapter
 from .config import Source
 from .media import timestamp
-from .models import EndReason, InputKind, Scan, ScanResult, ScanStart, Service, State
+from .models import EndReason, InputKind, Restore, Scan, ScanResult, ScanStart, Service, State
 
 if TYPE_CHECKING:
     from .manager import Manager
@@ -90,6 +91,10 @@ async def probe(source: Source, channel: int, source_id: str, kind: InputKind) -
         tsid, onid = transport_ids(source.path)
         services = []
         for program in parsed.get("programs", []):
+            if kind == InputKind.live and not {"video", "audio"}.issubset(
+                {s.get("codec_type") for s in program.get("streams", [])}
+            ):
+                continue
             sid = int(program["program_id"])
             key = str(
                 uuid5(NAMESPACE_URL, f"sdr-dtv:{kind}:{channel}:{onid}:{tsid}:{sid}:{source_id}")
@@ -148,10 +153,17 @@ class Scans:
             return self.items[previous[0]]
         m = self.manager
         m.check_idle()
-        if request.input_kind == InputKind.live:
-            raise Unavailable("live_not_implemented")
+        if request.input_kind == InputKind.live and (
+            not m.settings.live or not m.settings.device_lock_dir
+        ):
+            raise Unavailable("live_not_configured")
         if request.input_kind == InputKind.saved_ts:
             raise Unavailable("saved_scan_not_configured")
+        if request.input_kind == InputKind.live:
+            assert m.settings.live
+            registered = {p.channel for p in m.settings.live.profiles.values()}
+            if not set(request.channels).issubset(registered):
+                raise Unavailable("live_channel_not_configured")
         if len(self.items) >= 1000:
             raise Conflict("scan_history_limit")
         scan = Scan(
@@ -188,6 +200,71 @@ class Scans:
             self.stop_event.set()
         return scan
 
+    async def live_probe(self, scan: Scan, channel: int, remaining: float) -> list[Service]:
+        m = self.manager
+        assert m.settings.live and m.device.fd is not None
+        candidates = [(k, p) for k, p in m.settings.live.profiles.items() if p.channel == channel]
+        if not candidates:
+            return []
+        source_id, profile = candidates[0]
+        directory = m.settings.data_dir / "native" / f"{scan.id}-{channel}"
+        adapter = LiveAdapter(
+            m.settings,
+            m.live_source(source_id),
+            directory,
+            max(1, min(18, int(remaining))),
+            m.device.fd,
+        )
+        scan.restore = Restore.pending
+        m.store.save_record("scans", scan)
+        began = m.clock()
+        count = 0
+        try:
+            await adapter.start()
+            with (directory / "scan.ts").open("xb") as output:
+                while m.clock() - began < min(14, remaining):
+                    async with asyncio.timeout(max(0.01, min(14, remaining) - (m.clock() - began))):
+                        data = await adapter.read()
+                    if not data:
+                        break
+                    count += len(data)
+                    if count > 24 * 1024 * 1024:
+                        break
+                    output.write(data)
+        except TimeoutError:
+            pass
+        finally:
+            cleanup = asyncio.create_task(adapter.stop())
+            interrupted = False
+            while True:
+                try:
+                    scan.restore = await asyncio.shield(cleanup)
+                    break
+                except asyncio.CancelledError:
+                    interrupted = True
+            if scan.restore not in {Restore.verified, Restore.not_required}:
+                m.device.block(scan.id)
+            m.store.save_record("scans", scan)
+            if interrupted:
+                raise asyncio.CancelledError
+        if scan.restore != Restore.verified or adapter.failed:
+            raise RuntimeError("live scan failed")
+        found = await probe(
+            Source(directory / "scan.ts", 18_000_000), channel, source_id, InputKind.live
+        )
+        for service in found:
+            service.profile = {
+                "sample_rate_hz": 6_400_000,
+                "mode": profile.mode,
+                "gi": str(profile.gi),
+                "rate_b": profile.rate_b,
+                "interleave_a": profile.interleave_a,
+                "interleave_b": profile.interleave_b,
+                "tmcc": "configured_layers_match",
+                "layer": "B",
+            }
+        return found
+
     async def run(self, scan: Scan, duration: int) -> None:
         m = self.manager
         began = m.clock()
@@ -209,10 +286,16 @@ class Scans:
                 )
                 source = m.synthetic_source(source_id)
                 found: list[Service] = []
-                if source and source.path.is_file():
-                    task = asyncio.create_task(
-                        probe(source, result.physical_channel, source_id, scan.input_kind)
-                    )
+                if scan.input_kind == InputKind.live or (source and source.path.is_file()):
+                    if scan.input_kind == InputKind.live:
+                        task = asyncio.create_task(
+                            self.live_probe(scan, result.physical_channel, remaining)
+                        )
+                    else:
+                        assert source
+                        task = asyncio.create_task(
+                            probe(source, result.physical_channel, source_id, scan.input_kind)
+                        )
                     done, _ = await asyncio.wait(
                         [task, stop], timeout=remaining, return_when=asyncio.FIRST_COMPLETED
                     )

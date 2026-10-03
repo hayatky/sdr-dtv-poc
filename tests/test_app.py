@@ -157,7 +157,8 @@ def test_missing_origin_token_and_validation(client: TestClient) -> None:
         json={"request_id": str(uuid4()), "input_kind": "live"},
         headers=headers(client),
     )
-    assert response.status_code == 501
+    assert response.status_code == 503
+    assert response.json()["code"] == "live_not_configured"
     assert client.get("/api/sessions").json() == []
     assert client.get("/api/recordings").json() == []
     schema = client.get("/openapi.json").json()

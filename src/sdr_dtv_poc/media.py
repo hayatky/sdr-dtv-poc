@@ -20,7 +20,9 @@ def timestamp() -> str:
     return datetime.now(UTC).isoformat()
 
 
-async def spawn(*args: str, stdin: int = asyncio.subprocess.PIPE) -> asyncio.subprocess.Process:
+async def spawn(
+    *args: str, stdin: int = asyncio.subprocess.PIPE, stdout: int = asyncio.subprocess.DEVNULL
+) -> asyncio.subprocess.Process:
     return await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",
@@ -28,7 +30,7 @@ async def spawn(*args: str, stdin: int = asyncio.subprocess.PIPE) -> asyncio.sub
         str(os.getpid()),
         *args,
         stdin=stdin,
-        stdout=asyncio.subprocess.DEVNULL,
+        stdout=stdout,
         stderr=asyncio.subprocess.DEVNULL,
     )
 
@@ -51,6 +53,7 @@ class Media:
         self.directory = settings.data_dir / ("playback" if vod else "hls") / str(owner)
         self.queue: asyncio.Queue[bytes | None] = asyncio.Queue(settings.media_queue_chunks)
         self.process: asyncio.subprocess.Process | None = None
+        self.cas: asyncio.subprocess.Process | None = None
         self.feeder: asyncio.Task[None] | None = None
         self.monitor: asyncio.Task[None] | None = None
         self.artifact: Artifact | None = None
@@ -68,6 +71,11 @@ class Media:
                 self.process.kill()
             except ProcessLookupError:
                 pass
+        if self.cas and self.cas.returncode is None:
+            try:
+                self.cas.kill()
+            except ProcessLookupError:
+                pass
         try:
             if self.artifact:
                 self.artifact.partial = True
@@ -77,8 +85,11 @@ class Media:
             self.status.error_code, self.status.error_stage = "database_error", "storage"
 
     async def start(self) -> None:
+        read_fd = write_fd = None
         try:
             self.directory.mkdir(parents=True)
+            if self.settings.cas_executable:
+                read_fd, write_fd = os.pipe()
             self.process = await spawn(
                 "ffmpeg",
                 "-nostdin",
@@ -141,18 +152,28 @@ class Media:
                 "-hls_segment_filename",
                 str(self.directory / "segment_%06d.ts"),
                 str(self.directory / "index.m3u8"),
+                stdin=read_fd if read_fd is not None else asyncio.subprocess.PIPE,
             )
+            if self.settings.cas_executable:
+                assert write_fd is not None
+                self.cas = await spawn(
+                    str(self.settings.cas_executable), "-m0", "-p0", "-s0", "-v0", stdout=write_fd
+                )
             self.feeder = asyncio.create_task(self.feed())
             self.monitor = asyncio.create_task(self.watch())
         except OSError:
             self.fail("converter_unavailable")
+        finally:
+            for fd in (read_fd, write_fd):
+                if fd is not None:
+                    os.close(fd)
 
     def offer(self, data: bytes) -> None:
         if self.status.state == "failed" or not data:
             return
         # No CAS is configured. Preserve original TS but do not send scrambled
         # payload to the decoder or label this as an RF/recording failure.
-        if any(data[n + 3] & 0xC0 for n in range(0, len(data), 188)):
+        if not self.cas and any(data[n + 3] & 0xC0 for n in range(0, len(data), 188)):
             self.fail("cas_unavailable", "cas")
             return
         try:
@@ -161,16 +182,17 @@ class Media:
             self.fail("downstream_slow", "transport")
 
     async def feed(self) -> None:
-        assert self.process and self.process.stdin
+        input_process = self.cas or self.process
+        assert input_process and input_process.stdin
         try:
             while (data := await self.queue.get()) is not None:
-                self.process.stdin.write(data)
-                await asyncio.wait_for(self.process.stdin.drain(), 2)
-            self.process.stdin.close()
+                input_process.stdin.write(data)
+                await asyncio.wait_for(input_process.stdin.drain(), 2)
+            input_process.stdin.close()
         except TimeoutError:
             self.fail("downstream_slow", "transport")
         except (OSError, RuntimeError):
-            self.fail("converter_failed")
+            self.fail("cas_failed", "cas") if self.cas else self.fail("converter_failed")
 
     def publish(self) -> None:
         playlist = self.directory / "index.m3u8"
@@ -234,6 +256,9 @@ class Media:
         assert self.process
         try:
             while self.process.returncode is None:
+                if self.cas and self.cas.returncode is not None and not self.closing:
+                    self.fail("cas_failed", "cas")
+                    return
                 self.publish()
                 await asyncio.sleep(0.1)
             if not self.closing and self.status.state != "failed":
@@ -252,6 +277,10 @@ class Media:
                         await self.queue.put(None)
                         if self.feeder:
                             await self.feeder
+                        if self.cas:
+                            await self.cas.wait()
+                            if self.cas.returncode != 0:
+                                self.fail("cas_failed", "cas")
                         await self.process.wait()
                     if self.process.returncode != 0:
                         self.fail("converter_failed")
@@ -267,6 +296,13 @@ class Media:
         except Exception:
             self.fail("hls_publish_failed", "storage")
         finally:
+            if self.cas:
+                if self.cas.returncode is None:
+                    try:
+                        self.cas.kill()
+                    except ProcessLookupError:
+                        pass
+                await self.cas.wait()
             if self.process and self.process.returncode is None:
                 try:
                     self.process.kill()

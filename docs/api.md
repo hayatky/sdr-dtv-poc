@@ -2,7 +2,7 @@
 
 段階2のバックエンドは、段階1のmainから単独で起動できます。実装の仕様は
 `src/sdr_dtv_poc/models.py`と`GET /openapi.json`です。スキャン・HLS・録画・録画再生は
-合成入力で利用できます。`live`は501で、機器を操作しません。`saved_ts`は管理者が
+合成入力と設定済みの`live`で利用できます。実機設定がなければ503 `live_not_configured`です。`saved_ts`は管理者が
 登録した入力の視聴・録画に対応し、範囲スキャンには未対応です。
 
 通常のWebUIは本書のAPIへ接続します。画面だけの模擬デモは`?mode=mock`で選びます。
@@ -13,8 +13,9 @@ UI内の残り時間や段階表示は表示用の推定・変換であり、API
 ## 操作の保護とID
 
 - `GET /api/bootstrap`で起動単位の`csrf_token`、`mode=synthetic_backend`、
-  `live_available=false`、`scan_available/hls_available/recording_available=true`を取得します。
-  プリセットは`scan_presets.synthetic=[13,14]`、`uhf=[13,...,52]`です。
+  `live_available`、`scan_available/hls_available/recording_available=true`を取得します。
+  実機設定があれば`mode=live_backend`、`live_available=true`です。
+  プリセットは`scan_presets.synthetic=[13,14]`、`uhf=[13,...,52]`、`live`は登録済みchです。
 - 変更操作には`Origin`と`X-CSRF-Token`を付けます。Hostは設定したOriginのauthorityと
   完全一致が必要です。CORS・転送Hostは使いません。CLIはOriginも明示します。
 - 開始は202とUUIDを返します。同じ入力と`request_id`の再送は同じIDを返し、異なる入力なら
@@ -254,7 +255,7 @@ IDは認証情報ではありません。インターネットへ公開するサ
 | 409 `recording_incomplete` / `recording_file_missing` / `recording_unavailable` | partial・未完了・欠損を再生成功として扱わない |
 | 409 `playback_busy` | 別録画の変換終了を待つ |
 | 404 `playback_not_started` | CSRF付きPOSTで再生を開始する |
-| 501 `live_not_implemented` / `saved_scan_not_configured` | 今回対応しない入力機能 |
+| 503 `live_not_configured` / `live_channel_not_configured` / `saved_scan_not_configured` | 未設定または未対応の入力・チャンネル |
 | 503 `database_error` / `source_missing` / `source_not_registered` | 保存先・管理者設定の確認が必要 |
 
 ジョブ開始後の失敗はHTTP 200の状態取得で返ります。HTTPの成功だけで処理成功と表示しません。

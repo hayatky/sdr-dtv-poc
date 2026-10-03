@@ -4,6 +4,7 @@
 import fcntl
 import json
 import os
+from decimal import Decimal
 from pathlib import Path
 from uuid import UUID
 
@@ -24,6 +25,38 @@ class DeviceLock:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             if (self.root / "recovery-required.json").exists():
                 raise DeviceBusy("restore_unverified")
+            for folder in self.root.iterdir():
+                record = folder / "job.json"
+                if not folder.is_dir() or folder.is_symlink() or not record.is_file():
+                    continue
+                try:
+                    job = json.loads(record.read_text())
+                    if job.get("state") not in {"completed", "cancelled", "failed"}:
+                        raise DeviceBusy("restore_unverified")
+                    if job.get("restoration", {}).get("state") in {"pending", "unknown", "failed"}:
+                        recovery = json.loads((folder / "recovery.json").read_text())
+                        baseline, actual = job["baseline"], recovery["after"]
+                        if (
+                            recovery["capture_id"] != job["id"]
+                            or recovery["state"] != "restored_readback_verified"
+                            or recovery["baseline"] != baseline
+                            or set(actual) != set(baseline)
+                        ):
+                            raise DeviceBusy("restore_unverified")
+                        for name, expected in baseline.items():
+                            if name == "hardwaregain" and baseline["gain_control_mode"] != "manual":
+                                continue
+                            matches = (
+                                actual[name] == expected
+                                if name == "gain_control_mode"
+                                else (
+                                    Decimal(actual[name].split()[0]) == Decimal(expected.split()[0])
+                                )
+                            )
+                            if not matches:
+                                raise DeviceBusy("restore_unverified")
+                except (OSError, ValueError, KeyError, TypeError, ArithmeticError):
+                    raise DeviceBusy("restore_unverified") from None
         except BlockingIOError:
             os.close(fd)
             raise DeviceBusy("device_busy") from None

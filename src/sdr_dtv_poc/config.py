@@ -4,11 +4,14 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .live_config import LiveConfig
+
 
 @dataclass(frozen=True)
 class Source:
     path: Path
     bitrate: int
+    live_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -25,6 +28,8 @@ class Settings:
     media_queue_chunks: int = 256
     device_lock_dir: Path | None = None
     min_free_bytes: int = 128 * 1024 * 1024
+    live: LiveConfig | None = None
+    cas_executable: Path | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -41,6 +46,12 @@ class Settings:
             origin=os.environ.get("SDR_ORIGIN", "http://localhost:8000"),
             demo_path=Path(os.environ.get("SDR_DEMO_PATH", "data/demo/demo.ts")),
             saved_sources=sources,
+            live=LiveConfig.read(Path(os.environ["SDR_LIVE_CONFIG"]))
+            if os.environ.get("SDR_LIVE_CONFIG")
+            else None,
+            cas_executable=Path(os.environ["SDR_CAS_EXECUTABLE"])
+            if os.environ.get("SDR_CAS_EXECUTABLE")
+            else None,
             device_lock_dir=Path(os.environ["SDR_DEVICE_LOCK_DIR"])
             if os.environ.get("SDR_DEVICE_LOCK_DIR")
             else None,

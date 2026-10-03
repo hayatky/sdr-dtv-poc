@@ -63,3 +63,18 @@ research repository. Confirm permission and applicable notices before adding
 those files or a derived receiver image to a public distribution. This is a
 remaining distribution requirement, not a claim that all research files have the
 upstream block license.
+
+## Local live adapter and external CAS
+
+The live wrapper inputs are pinned separately to research commit
+`daf2c700df652e97e6e4a1e52f36d8b5361f9d6e` (PR #76). Their SHA-256 values
+are in `live_sources.py`; `prepare-live.py` extracts Git objects to local ignored
+storage. The native image still uses the baseline described above. The research
+wrappers and live CAS are bind-mounted, not redistributed in this repository.
+
+External CAS: https://github.com/tsukumijima/libaribb25 at
+`dc1d96a90ea554d8997b238fd6712eccf553cdb3`, unmodified local build of
+`arib-b25-stream-test` and its library. The checked revision's LICENSE is Apache-2.0.
+Preserve its own license and source notices;
+this repository's GPL declaration does not replace those terms. No CAS source,
+card identifiers, keys, binary package, or container image is distributed here.

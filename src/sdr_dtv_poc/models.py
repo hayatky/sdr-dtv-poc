@@ -96,6 +96,7 @@ class Session(BaseModel):
     selected_service_id: int = 1
     ts_started_at: str | None = None
     hls: MediaStatus | None = None
+    receiver_metrics: dict[str, float | int | str] = Field(default_factory=dict)
 
 
 class Error(BaseModel):
