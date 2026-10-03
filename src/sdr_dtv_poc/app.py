@@ -34,6 +34,13 @@ from .models import (
 from .security import Protection
 
 STATIC = Path(__file__).with_name("static")
+# WebUI files owned by #18/#27-#29; only these names are served from static/.
+UI_FILES = {
+    "style.css": "text/css",
+    "api.js": "text/javascript",
+    "mock.js": "text/javascript",
+    "app.js": "text/javascript",
+}
 ERRORS: dict[int | str, dict[str, object]] = {
     code: {"model": Error} for code in (403, 404, 409, 422, 501, 503)
 }
@@ -95,9 +102,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def index() -> FileResponse:
         return FileResponse(STATIC / "index.html")
 
-    @app.get("/static/entry.js", include_in_schema=False)
-    def script() -> FileResponse:
-        return FileResponse(STATIC / "entry.js", media_type="text/javascript")
+    @app.get("/static/{filename}", include_in_schema=False)
+    def ui_file(filename: str) -> FileResponse:
+        if filename not in UI_FILES:
+            raise HTTPException(404, "file_not_found")
+        return FileResponse(STATIC / filename, media_type=UI_FILES[filename])
 
     @app.get("/static/vendor/{filename}", include_in_schema=False)
     def vendor(filename: str) -> FileResponse:

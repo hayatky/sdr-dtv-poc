@@ -1,16 +1,22 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <html lang="ja">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SDR DTV PoC — 起動確認</title>
-<h1>SDR DTV PoC：起動確認</h1>
-<p>実機を使わない開発基盤です。合成デモは実機での受信を示しません。</p>
-<p>WebUI本体・HLS・録画は後続の実装です。</p>
-<button id="diagnose">接続診断を表示</button>
-<button id="start">合成デモを開始</button>
-<button id="stop" disabled>デモを停止</button>
-<pre id="status" aria-live="polite"></pre>
-<p><a href="/openapi.json">OpenAPIの仕様</a></p>
-<script src="/static/entry.js" defer></script>
+<meta name="color-scheme" content="light dark">
+<title>SDR地上波テレビ PoC（表示確認用デモ）</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/vendor/vue.runtime.global.prod.js" defer></script>
+<script src="/static/mock.js" defer></script>
+<script src="/static/api.js" defer></script>
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<div id="app">
+  <p class="boot">画面を読み込んでいます…</p>
+  <noscript><p class="boot">この画面の表示にはJavaScriptが必要です。</p></noscript>
+</div>
+</body>
 </html>
