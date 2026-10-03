@@ -195,7 +195,8 @@ download_url/file_available/source_offset_bytes`が入ります。最後の項�
   実経過時間で、flush等により指定時間を僅かに超える場合があります。
 - 手動停止・期限は正常終了。受信の先行停止/EOFは`failed/partial/source_ended`、API終了は
   `server_shutdown`、再起動時の未完了は`interrupted/partial/server_restart`です。
-- 録画は最大2,000,000,000 byte（50 Mbps×300秒=1.875 GB）。開始前に要求時間の容量を確認し、
+- 録画は最大2,000,000,000 byte（50 Mbps×300秒=1.875 GB）。開始前に録画と同じ時間の
+  セッション保存の両方、HLSと稼働中の録画再生の出力上限、空き容量の下限を含めて確認し、
   書込み時も容量・packet境界を確認します。ENOSPC、書込み/flush/close失敗、DB失敗を保存します。
 - 録画中は選局・スキャン・二重録画を409で拒否します。録画だけを停止すれば視聴は継続します。
   session停止は録画をpartialとして終了させてから入力を回収します。

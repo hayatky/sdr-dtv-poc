@@ -244,7 +244,6 @@ class Media:
     async def close(self) -> None:
         if self.closed:
             return
-        self.closed = True
         self.closing = True
         try:
             if self.process:
@@ -269,7 +268,10 @@ class Media:
             self.fail("hls_publish_failed", "storage")
         finally:
             if self.process and self.process.returncode is None:
-                self.process.kill()
+                try:
+                    self.process.kill()
+                except ProcessLookupError:
+                    pass
             if self.process:
                 await self.process.wait()
             for task in (self.feeder, self.monitor):
@@ -281,3 +283,6 @@ class Media:
             if self.status.state == "failed" and self.artifact:
                 self.artifact.partial = True
                 self.store.update_artifact(self.artifact)
+            # A cancelled cleanup must remain retryable until children and
+            # background tasks have actually been reaped.
+            self.closed = True

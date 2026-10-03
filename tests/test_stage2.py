@@ -7,6 +7,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -65,6 +66,105 @@ async def ready(manager: Manager) -> Any:
         while not session.bytes_received:
             await asyncio.sleep(0.005)
     return session
+
+
+@pytest.mark.parametrize("with_hls", [False, True])
+def test_recording_reserves_session_and_media_growth(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, with_hls: bool
+) -> None:
+    async def run() -> None:
+        m = Manager(settings, adapter_factory=lambda _: Paced())
+        try:
+            session = await ready(m)
+            if with_hls:
+                session.hls = MediaStatus()
+            needed = int(settings.demo_bitrate * 300 / 8)
+            required = settings.min_free_bytes + 2 * needed
+            if with_hls:
+                required += settings.max_hls_bytes
+            usage = Mock(free=required - 1)
+            monkeypatch.setattr("sdr_dtv_poc.recording.shutil.disk_usage", lambda _: usage)
+            request = RecordingStart(request_id=uuid4(), session_id=session.id)
+            with pytest.raises(Conflict, match="storage_full"):
+                m.recordings.start(request)
+            assert m.recordings.active is None
+            usage.free = required
+            assert m.recordings.start(request).state == State.running
+        finally:
+            await m.close()
+
+    asyncio.run(run())
+
+
+def test_media_cleanup_can_resume_after_cancellation(settings: Settings) -> None:
+    async def run() -> None:
+        m = Manager(settings)
+        try:
+            media = Media(settings, m.store, uuid4(), 1, MediaStatus(state="failed"), lambda: None)
+            waiting = asyncio.Event()
+            released = asyncio.Event()
+
+            async def wait() -> int:
+                waiting.set()
+                await released.wait()
+                return 0
+
+            child = Mock(returncode=None, wait=AsyncMock(side_effect=wait))
+            media.process = child
+            media.feeder = asyncio.create_task(asyncio.sleep(60))
+            media.monitor = asyncio.create_task(asyncio.sleep(60))
+            cleanup = asyncio.create_task(media.close())
+            await waiting.wait()
+            cleanup.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await cleanup
+            assert not media.closed
+            released.set()
+            await media.close()
+            assert media.closed
+            assert child.wait.await_count == 2
+            assert media.feeder.done() and media.monitor.done()
+            await media.close()
+            assert child.wait.await_count == 2
+        finally:
+            await m.close()
+
+    asyncio.run(run())
+
+
+def test_playback_preserves_capacity_for_running_recording(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def run() -> None:
+        tick = 0.0
+        m = Manager(settings, adapter_factory=lambda _: Paced(), clock=lambda: tick)
+        try:
+            session = await ready(m)
+            record = m.recordings.start(RecordingStart(request_id=uuid4(), session_id=session.id))
+            m.recordings.write(PACKET)
+            m.recordings.finish(EndReason.requested)
+            active = m.recordings.start(RecordingStart(request_id=uuid4(), session_id=session.id))
+            tick = 100
+            required = settings.min_free_bytes + settings.max_playback_bytes
+            required += int(settings.demo_bitrate * 200 / 8) * 2
+            usage = Mock(free=required - 1)
+            monkeypatch.setattr("sdr_dtv_poc.recording.shutil.disk_usage", lambda _: usage)
+            with pytest.raises(Conflict, match="storage_full"):
+                m.recordings.start_playback(record.id)
+            assert m.recordings.active is active and not record.partial
+            assert m.recordings.playback_task is None
+            usage.free = required
+            # Isolate admission from the separately tested converter.
+            convert = AsyncMock()
+            monkeypatch.setattr(m.recordings, "convert", convert)
+            m.recordings.start_playback(record.id)
+            assert m.recordings.playback_task
+            await m.recordings.playback_task
+            assert convert.await_count == 1
+        finally:
+            await m.close()
+
+    asyncio.run(run())
 
 
 def test_recording_clock_conflicts_and_original(settings: Settings) -> None:

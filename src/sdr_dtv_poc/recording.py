@@ -85,7 +85,15 @@ class Recordings:
         needed = int(m.sources[session.id].bitrate * request.duration_seconds / 8)
         if needed > m.settings.max_recording_bytes:
             raise Conflict("recording_output_limit")
-        if shutil.disk_usage(m.settings.data_dir).free < m.settings.min_free_bytes + needed:
+        # The session keeps its own original TS while recording the same bytes.
+        # Include bounded media growth on this filesystem as well.
+        media_growth = m.settings.max_hls_bytes if session.hls else 0
+        if self.playback_task and not self.playback_task.done():
+            media_growth += m.settings.max_playback_bytes
+        if (
+            shutil.disk_usage(m.settings.data_dir).free
+            < m.settings.min_free_bytes + 2 * needed + media_growth
+        ):
             raise Conflict("storage_full")
         record = Recording(
             id=uuid4(),
@@ -255,9 +263,18 @@ class Recordings:
             raise Conflict("recording_file_missing")
         if self.playback_task and not self.playback_task.done():
             raise Conflict("playback_busy")
+        recording_growth = 0
+        if self.active:
+            session = self.manager.sessions[self.active.session_id]
+            remaining = max(0.0, self.deadline - self.manager.clock())
+            recording_growth = int(self.manager.sources[session.id].bitrate * remaining / 8) * 2
+            if session.hls:
+                recording_growth += self.manager.settings.max_hls_bytes
         if (
             shutil.disk_usage(self.manager.settings.data_dir).free
-            < self.manager.settings.min_free_bytes + self.manager.settings.max_playback_bytes
+            < self.manager.settings.min_free_bytes
+            + self.manager.settings.max_playback_bytes
+            + recording_growth
         ):
             raise Conflict("storage_full")
         playback = Playback(
