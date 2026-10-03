@@ -60,8 +60,12 @@ def terminal(client: TestClient, session_id: str) -> dict[str, Any]:
 def test_eof_artifact_and_restart(settings: Settings) -> None:
     with TestClient(create_app(settings), base_url=ORIGIN) as client:
         assert client.get("/").status_code == 200
-        assert "textContent" in client.get("/static/entry.js").text
-        assert "innerHTML" not in client.get("/static/entry.js").text
+        for name in ("app.js", "api.js", "mock.js"):
+            script = client.get(f"/static/{name}")
+            assert script.headers["content-type"].startswith("text/javascript")
+            assert "innerHTML" not in script.text and "v-html" not in script.text
+        assert client.get("/static/style.css").headers["content-type"].startswith("text/css")
+        assert client.get("/static/entry.js").status_code == 404
         assert client.get("/api/diagnostics").json()["starts_receiver"] is False
         assert client.get("/api/sessions").json() == []
         session = terminal(client, start(client)["id"])
