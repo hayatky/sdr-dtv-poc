@@ -160,6 +160,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status="ok" if shutil.which("ffmpeg") else "missing",
                 code="generator_and_hls",
             ),
+            "service_information": Diagnostic(
+                status=(
+                    "not_required"
+                    if input_kind != InputKind.live
+                    else "ok"
+                    if shutil.which("tstables")
+                    else "missing"
+                ),
+                code="arib_service_names",
+            ),
             "board": Diagnostic(
                 status="not_required" if input_kind != InputKind.live else "not_checked",
                 code="no_device_io",

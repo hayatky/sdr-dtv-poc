@@ -10,7 +10,7 @@ macOS、Windows、別ボード/FWへの互換性は未確認です。普段の�
 研究元の基点`b1dcbf3688db79f149ff3a255639a36860ec3924`で固定したnative imageを
 [receiver.md](receiver.md)の手順でビルドします。実機用Pythonソースは
 [研究元PR #76](https://github.com/hayatky/hlfec-sdr-lab/pull/76)の
-`729400f8e2c42ad30f1b5496a22db457d19c839b`を使います。
+`0b00caacacacd63f95b284575fa843583085f78f`を使います。
 `live_sources.py`の12ファイルのSHA-256を起動時に照合し、相違があれば開始しません。
 研究元のwrapperの再配布条件は未確定なので、Gitや配布imageへコピーせず、
 利用権限のある人が別途取得して読み取り専用でbind mountします。
@@ -37,7 +37,7 @@ APIからsudo・Docker socketを操作しません。
 
 ```sh
 # 別途取得した研究checkoutへ固定コミットを取得する（checkoutは変更しない）
-git -C /path/to/research fetch origin 729400f8e2c42ad30f1b5496a22db457d19c839b
+git -C /path/to/research fetch origin 0b00caacacacd63f95b284575fa843583085f78f
 uv run --locked python scripts/prepare-live.py /path/to/research data/live-source
 mkdir -p data/live-config data/live-app data/live-host
 chmod 700 data/live-config data/live-app data/live-host
@@ -101,7 +101,11 @@ TMCCの検出だけでは視聴可能な局と扱いません。TSの復調失�
 RX復元を確認して次へ進みます。取得や復元の異常では全体を停止します。
 診断IQ・変換後IQ・TSはGit外に残るため、全範囲のスキャンに数GBの空きを確保してください。
 保存された局を選んで
-視聴し、最大5分の録画を開始できます。局名をSIから取得できないときは不明と表示し、
+視聴し、最大5分の録画を開始できます。局名はスキャン中にA階層も復調し、同じ取得区間のSDTを別に読み取ります。
+TSDuck 3.45-4798のCRC・連続性検査とARIB文字復号を使い、B階層のPATのTSIDと
+SDTのTSID・サービスIDが一致した局名だけ保存します。A階層13セグメント構成では
+同じA階層TSを使います。A側の局情報が欠落してもB側のサービス検出は継続します。
+局名をSIから取得できないときは不明と表示し、
 過去の検出と現在の受信を分けます。録画中は選局・スキャン・二重録画を拒否します。
 受信期限は600秒、録画期限は単調時計の300秒です。画面を閉じても期限は有効です。
 
@@ -126,3 +130,10 @@ Chromiumの機械的frame/audio/time測定と分けて記録してください�
 Safariの視聴・録画再生は2026-10-04にユーザー確認済みで、画質改善後の再確認は残ります。
 録画一覧の「削除する」から録画TSと再生用ファイルを手動削除できます。
 録画中・変換中は削除できません。詳しい範囲は[APIの説明](api.md)を参照してください。
+
+
+局名の取得には`Dockerfile.live`でSHA-256を照合して導入するTSDuckが必要です。
+既存の実機用コンテナは再ビルドしてください。ホストのuvで実行する場合も、
+同じ固定バージョンの`tstables`をPATHへ用意します。「接続を確認する」で局名取得の
+ツールの有無を確認できます。表示だけを更新しても過去の未取得名は補完されません。
+再スキャンでSDTを取得すると、局一覧のIDを保持して局名を更新します。

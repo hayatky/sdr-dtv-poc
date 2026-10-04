@@ -86,6 +86,7 @@ class LiveAdapter:
         self.process: asyncio.subprocess.Process | None = None
         self.log: BinaryIO | None = None
         self.failed = False
+        self.collect_service_info = False
 
     async def start(self) -> None:
         assert self.settings.live and self.settings.device_lock_dir
@@ -95,6 +96,8 @@ class LiveAdapter:
             profile_path = self.directory / "profile.json"
             profile_path.write_text(json.dumps(asdict(self.source.live_profile)))
             profile_args = ["--profile", str(profile_path)]
+        if self.collect_service_info:
+            profile_args.append("--service-info")
         self.log = (self.directory / "supervisor.log").open("xb")
         self.process = await asyncio.create_subprocess_exec(
             str(self.settings.live.native_python),

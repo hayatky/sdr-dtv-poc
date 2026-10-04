@@ -74,6 +74,7 @@ def run(
     lock_fd: int,
     seconds: int,
     profile_path: Path | None = None,
+    service_info: bool = False,
 ) -> int:
     os.umask(0o077)
     config = LiveConfig.read(config_path)
@@ -322,7 +323,7 @@ def run(
                 "--stage",
                 "ts",
                 "--layers",
-                profile.layer,
+                "ab" if service_info and profile.layer == "b" else profile.layer,
                 "--modulation-a",
                 str(profile.modulation_a),
                 "--rate-a",
@@ -344,6 +345,7 @@ def run(
                 str(profile.interleave_b),
                 "--stream-input",
                 "--timing-interpolate",
+                *(["--optional-a"] if service_info and profile.layer == "b" else []),
             ],
         )
         launch(
@@ -473,6 +475,7 @@ def main() -> None:
     parser.add_argument("lock_fd", type=int)
     parser.add_argument("seconds", type=int, choices=range(1, 601))
     parser.add_argument("--profile", type=Path)
+    parser.add_argument("--service-info", action="store_true")
     args = parser.parse_args()
     sys.exit(
         run(
@@ -483,6 +486,7 @@ def main() -> None:
             args.lock_fd,
             args.seconds,
             args.profile,
+            args.service_info,
         )
     )
 

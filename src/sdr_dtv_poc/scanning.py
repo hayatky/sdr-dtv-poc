@@ -18,6 +18,7 @@ from .config import Source
 from .live_config import LiveProfile
 from .media import timestamp
 from .models import EndReason, InputKind, Restore, Scan, ScanResult, ScanStart, Service, State
+from .service_info import pat_tsid, service_names
 
 if TYPE_CHECKING:
     from .manager import Manager
@@ -60,7 +61,13 @@ def transport_ids(path: Path) -> tuple[int | None, int | None]:
     return tsid, onid
 
 
-async def probe(source: Source, channel: int, source_id: str, kind: InputKind) -> list[Service]:
+async def probe(
+    source: Source,
+    channel: int,
+    source_id: str,
+    kind: InputKind,
+    si_path: Path | None = None,
+) -> list[Service]:
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",
@@ -92,6 +99,9 @@ async def probe(source: Source, channel: int, source_id: str, kind: InputKind) -
                 return []
         parsed = json.loads(result)
         tsid, onid = transport_ids(source.path)
+        if kind == InputKind.live:
+            tsid = await pat_tsid(source.path)
+        names = await service_names(si_path or source.path, tsid) if kind == InputKind.live else {}
         services = []
         for program in parsed.get("programs", []):
             if kind == InputKind.live and not {"video", "audio"}.issubset(
@@ -99,18 +109,25 @@ async def probe(source: Source, channel: int, source_id: str, kind: InputKind) -
             ):
                 continue
             sid = int(program["program_id"])
+            name = program.get("tags", {}).get("service_name")
+            service_onid = onid
+            if kind == InputKind.live:
+                service_onid, name = names.get(sid, (None, None))
             key = str(
-                uuid5(NAMESPACE_URL, f"sdr-dtv:{kind}:{channel}:{onid}:{tsid}:{sid}:{source_id}")
+                uuid5(
+                    NAMESPACE_URL,
+                    f"sdr-dtv:{kind}:{channel}:{service_onid}:{tsid}:{sid}:{source_id}",
+                )
             )
             services.append(
                 Service(
                     id=key,
-                    name=program.get("tags", {}).get("service_name"),
+                    name=name,
                     input_kind=kind,
                     physical_channel=channel,
                     frequency_hz=frequency(channel),
                     service_id=sid,
-                    original_network_id=onid,
+                    original_network_id=service_onid,
                     transport_stream_id=tsid,
                     detection_stage="ts_si",
                     source_id=source_id,
@@ -265,6 +282,7 @@ class Scans:
         )
         scan.restore = Restore.pending
         m.store.save_record("scans", scan)
+        adapter.collect_service_info = True
         began = m.clock()
         count = 0
         try:
@@ -317,7 +335,11 @@ class Scans:
                 return []
             raise RuntimeError("live scan worker failed")
         found = await probe(
-            Source(directory / "scan.ts", 18_000_000), channel, source_id, InputKind.live
+            Source(directory / "scan.ts", 18_000_000),
+            channel,
+            source_id,
+            InputKind.live,
+            si_path=directory / "demod/layer_a.ts",
         )
         for service in found:
             service.profile = {
@@ -327,6 +349,32 @@ class Scans:
                 "layer": profile.layer,
             }
         return found
+
+    def keep_service_id(self, service: Service) -> None:
+        # Adding a previously unavailable ONID/name must not duplicate a station
+        # or invalidate recording/session references to the existing service.
+        matches = [
+            s
+            for s in self.services.values()
+            if (
+                s.input_kind == service.input_kind
+                and s.physical_channel == service.physical_channel
+                and s.source_id == service.source_id
+                and s.transport_stream_id == service.transport_stream_id
+                and s.service_id == service.service_id
+                and (
+                    s.original_network_id is None
+                    or service.original_network_id is None
+                    or s.original_network_id == service.original_network_id
+                )
+            )
+        ]
+        if len(matches) == 1:
+            service.id = matches[0].id
+            # Keep known identity through temporary SI loss; the current name
+            # remains None so the UI does not claim it was measured this time.
+            if service.original_network_id is None:
+                service.original_network_id = matches[0].original_network_id
 
     async def run(self, scan: Scan, duration: int) -> None:
         m = self.manager
@@ -381,6 +429,7 @@ class Scans:
                     else result.state
                 )
                 for service in found:
+                    self.keep_service_id(service)
                     m.store.save_record("services", service)
                     self.services[service.id] = service
                     result.service_ids.append(service.id)
