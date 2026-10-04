@@ -187,7 +187,7 @@
     system: null,
     announce: '',
     diag: {inputKind: 'synthetic', phase: 'idle', result: null, checkedAt: null, error: null},
-    scanForm: {preset: api.demo ? 'all' : 'synthetic', from: 13, to: 52},
+    scanForm: {preset: api.demo ? 'all' : 'synthetic', from: 13, to: 52, inputSelected: false},
     scan: {current: null, pending: false, error: null},
     services: {items: [], loaded: false},
     watch: {targetRef: null, session: null, action: null, error: null, confirmStop: false},
@@ -274,11 +274,27 @@
     return null;
   }
 
+  function selectInput(kind) {
+    Object.assign(state.diag, {inputKind: kind, result: null, phase: 'idle', error: null});
+    state.scanForm.inputSelected = true;
+    if (!api.demo) state.scanForm.preset = kind === 'live' ? 'live' : 'synthetic';
+  }
+
+  function scanPresets() {
+    if (api.demo) return SCAN_PRESETS.filter(p => !['synthetic', 'live'].includes(p.id));
+    if (state.diag.inputKind === 'saved_ts') return [];
+    return SCAN_PRESETS.filter(p => state.diag.inputKind === 'live' ? p.id === 'live' : p.id !== 'live');
+  }
+
   function scanRange() {
     const f = state.scanForm;
+    if (!api.demo && state.diag.inputKind === 'saved_ts') {
+      return {ok: false, message: '保存TSからのスキャンには現在対応していません。入力元を実機ライブまたは合成TSへ変更してください。'};
+    }
+    if (!scanPresets().some(p => p.id === f.preset)) return {ok: false, message: '入力元と調べる範囲を選び直してください。'};
     if (f.preset === 'synthetic' || f.preset === 'live') {
       const channels = state.bootstrap?.scan_presets?.[f.preset] || [];
-      return {ok: channels.length > 0, channels, from: channels[0], to: channels.at(-1), message: '接続情報を取得しています。'};
+      return {ok: channels.length > 0, channels, from: channels[0], to: channels.at(-1), message: state.bootstrap ? 'この入力元のチャンネルが登録されていません。' : '接続情報を取得しています。'};
     }
     const preset = SCAN_PRESETS.find(p => p.id === f.preset);
     const from = preset.id === 'custom' ? Number(f.from) : preset.from;
@@ -338,6 +354,7 @@
         api.status(), api.services(), api.demo ? api.recordings() : Promise.resolve(null)]);
       if (!valid(own)) return;
       state.bootstrap = boot;
+      if (!api.demo && !state.scanForm.inputSelected) selectInput(boot.live_available ? 'live' : 'synthetic');
       state.system = status;
       state.services = {items: services, loaded: true};
       state.recordings.items = recordings || status.recordings;
@@ -426,7 +443,7 @@
   function startScan() {
     const range = scanRange();
     if (!range.ok || blockReason('scan')) return;
-    const kind = state.scanForm.preset === 'live' ? 'live' : 'synthetic';
+    const kind = state.diag.inputKind;
     return mutate(state.scan, () => api.startScan(range.channels, api.newRequestId(), kind), next => { state.scan.current = next; });
   }
   function stopScan() {
@@ -694,11 +711,11 @@
       el('h3', {id: 'diag-title'}, '1. 接続を確認する'),
       el('p', null, '受信を始める前に、必要な機器とプログラムがそろっているかを確認します。この確認では受信を開始しません。'),
       el('fieldset', {class: 'choice'},
-        el('legend', null, '確認する入力元'),
+        el('legend', null, '接続確認・スキャンの入力元'),
         Object.entries(INPUT_KINDS).map(([kind, info]) => el('label', {class: 'radio'},
           el('input', {type: 'radio', name: 'diag-input', value: kind, checked: d.inputKind === kind,
-            disabled: !api.demo && kind === 'live' && !state.bootstrap?.live_available,
-            onChange: () => { Object.assign(d, {inputKind: kind, result: null, phase: 'idle', error: null}); }}),
+            disabled: scanning() || state.scan.pending || (!api.demo && kind === 'live' && !state.bootstrap?.live_available),
+            onChange: () => selectInput(kind)}),
           info.long))),
       el('div', {class: 'actions'},
         button(d.phase === 'running' ? '確認しています…' : '接続を確認する', runDiagnostics, {kind: 'primary', disabled: d.phase === 'running' || offline()})),
@@ -724,8 +741,9 @@
   function scanResult(scan) {
     const found = scan.found_services;
     const kept = '以前に保存した局の一覧はそのまま残しています。';
+    const check = scan.input_kind === 'live' ? '受信ボードの接続・RF配線と、登録した受信設定' : '入力ファイルとスキャンの範囲';
     if (scan.state === 'failed') {
-      return {tone: 'danger', title: 'スキャンを完了できませんでした', body: `理由：${END_REASONS[scan.end_reason] || '不明'}。${kept}入力ファイルと接続診断の結果を確認してから、もう一度お試しください。`};
+      return {tone: 'danger', title: 'スキャンを完了できませんでした', body: `理由：${END_REASONS[scan.end_reason] || '不明'}。${kept}${check}を確認してから、もう一度お試しください。`};
     }
     if (scan.state === 'interrupted') {
       return {tone: 'warn', title: 'サーバーの再起動でスキャンが中断されました', body: `${kept}もう一度スキャンしてください。`};
@@ -737,7 +755,7 @@
       return {tone: 'warn', title: '時間内にすべてのチャンネルを調べられませんでした', body: `スキャンは最大3分です。範囲を狭めて、もう一度お試しください。${kept}`};
     }
     if (!found) {
-      return {tone: 'warn', title: '局が見つかりませんでした', body: `${kept}入力ファイルとスキャンの範囲を確認してから、もう一度お試しください。`};
+      return {tone: 'warn', title: '局が見つかりませんでした', body: `${kept}${check}を確認してから、もう一度お試しください。`};
     }
     return {tone: 'ok', title: `スキャンが終わりました。${found}局を保存しました。`, body: '視聴タブで局を選ぶと受信を始めます。'};
   }
@@ -751,13 +769,14 @@
     const reason = running ? null : blockReason('scan');
     return el('section', {class: 'panel', 'aria-labelledby': 'scan-title'},
       el('h3', {id: 'scan-title'}, '2. 局を探す（スキャン）'),
-      el('p', null, f.preset === 'live'
-        ? '実測した受信設定が登録されているチャンネルを調べます。最大3分で終了します。'
+      el('p', null, !api.demo && state.diag.inputKind === 'live'
+        ? '実機で受信し、受信設定が登録されているチャンネルを調べます。未登録チャンネルを含むUHF全範囲の自動探索には現在対応していません。最大3分で終了します。'
+        : !api.demo && state.diag.inputKind === 'saved_ts' ? '保存TSからのスキャンには現在対応していません。'
         : '合成TSから局を探します。チャンネルは架空の割当てで、電波の検出ではありません。最大3分で終了します。'),
       blockNotice(reason),
       el('fieldset', {class: 'choice', disabled: running},
         el('legend', null, '調べる範囲'),
-        SCAN_PRESETS.map(p => el('label', {class: 'radio'},
+        scanPresets().map(p => el('label', {class: 'radio'},
           el('input', {type: 'radio', name: 'scan-preset', value: p.id, checked: f.preset === p.id, onChange: () => { f.preset = p.id; }}),
           p.label)),
         f.preset === 'custom' ? el('div', {class: 'range'},
@@ -768,7 +787,9 @@
           el('input', {id: 'scan-to', type: 'number', inputmode: 'numeric', min: 13, max: 52, value: f.to,
             'aria-describedby': 'scan-range-help', onInput: e => { f.to = e.target.value; }})) : null,
         el('p', {id: 'scan-range-help', class: ['hint', range.ok ? null : 'invalid']},
-          range.ok ? `${range.from}〜${range.to}ch（${range.channels.length}チャンネル）を調べます。` : range.message)),
+          range.ok ? (['live', 'synthetic'].includes(f.preset)
+            ? `${range.channels.map(ch => `${ch}ch`).join('、')}（${range.channels.length}チャンネル）を調べます。`
+            : `${range.from}〜${range.to}ch（${range.channels.length}チャンネル）を調べます。`) : range.message)),
       el('div', {class: 'actions'},
         running
           ? button(current.state === 'stopping' ? '中止しています…' : 'スキャンを中止する', stopScan, {kind: 'danger', disabled: sc.pending || current.state === 'stopping'})
@@ -783,6 +804,7 @@
     const running = active(scan);
     const result = running ? null : scanResult(scan);
     return el('div', {class: 'scan-progress'},
+      el('p', {class: 'meta'}, `このスキャンの入力元：${INPUT_KINDS[scan.input_kind]?.long || '表示確認用のデモ'}`),
       running ? el('div', null,
         el('label', {for: 'scan-bar', class: 'progress-label'},
           scan.state === 'stopping' ? 'スキャンを中止しています…' : `${scan.current_channel || '—'}chを調べています（${scan.done_channels} / ${total}）`),
