@@ -23,7 +23,8 @@ for d in /sys/bus/usb/devices/*; do
 done
 [[ $boards == 1 && -n $iface ]] || exit 2
 [[ -z $(ip -4 -o addr show dev "$iface") && $(<"/sys/class/net/$iface/flags") == 0x1002 ]] || exit 2
-[[ ! -e $device_dir/recovery-required.json ]] || exit 2
+# Host connectivity is needed to verify recovery too; this script never clears
+# recovery evidence and never starts acquisition.
 pcsc_socket=$(systemctl is-active pcscd.socket || true)
 pcsc_service=$(systemctl is-active pcscd.service || true)
 [[ $pcsc_service == inactive && $pcsc_socket == active ]] || exit 2
@@ -46,8 +47,12 @@ cleanup() {
  pcsc_rc=0; address_rc=0; link_rc=0
  if [[ $pcsc_changed == 1 ]]; then systemctl start pcscd.socket; pcsc_rc=$?; fi
  if [[ $configured == 1 ]]; then
-   ip -4 addr del 192.168.2.10/24 dev "$iface"; address_rc=$?
-   ip link set "$iface" down; link_rc=$?
+   if [[ -e /sys/class/net/$iface ]]; then
+     if ip -4 -o addr show dev "$iface" | grep -q '192.168.2.10/24'; then
+       ip -4 addr del 192.168.2.10/24 dev "$iface"; address_rc=$?
+     fi
+     ip link set "$iface" down; link_rc=$?
+   fi
  fi
  if ((pcsc_rc || address_rc || link_rc)); then status=1; fi
  printf 'status=%s pcsc_restore_rc=%s address_restore_rc=%s link_restore_rc=%s pcsc_socket=%s\n' \
@@ -73,4 +78,25 @@ chmod 600 "$base/pcsc/pcscd.comm"
 flock -u 8
 printf 'ready\n' > "$base/host-ready"
 chown "$SUDO_UID:$SUDO_GID" "$base/host-ready"
-for i in {1..3400}; do [[ ! -e $base/host-stop ]] || exit 0; kill -0 "$pcsc_pid"; sleep 1; done
+for i in {1..3400}; do
+ [[ ! -e $base/host-stop ]] || exit 0
+ kill -0 "$pcsc_pid"
+ # USB re-enumeration loses the volatile address. Restore only connectivity,
+ # only to the single target board, and only when no RX/recovery owns the lock.
+ candidate=''; count=0; netcount=0
+ for d in /sys/bus/usb/devices/*; do
+   [[ -f $d/idVendor && -f $d/idProduct ]] || continue
+   [[ $(<"$d/idVendor") == 0456 && $(<"$d/idProduct") == b673 ]] || continue
+   ((count+=1))
+   for n in "$d":*/net/*; do candidate=${n##*/}; ((netcount+=1)); done
+ done
+ if [[ $count == 1 && $netcount == 1 && -n $candidate ]] && flock -n 8; then
+   if [[ -z $(ip -4 -o addr show dev "$candidate") && $(<"/sys/class/net/$candidate/flags") == 0x1002 ]]; then
+     iface=$candidate
+     ip -4 addr add 192.168.2.10/24 dev "$iface"
+     ip link set "$iface" up
+   fi
+   flock -u 8
+ fi
+ sleep 1
+done

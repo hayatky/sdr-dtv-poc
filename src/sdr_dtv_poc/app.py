@@ -188,6 +188,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
         return Diagnostics(input_kind=input_kind, checks=checks)
 
+    @app.get("/api/recovery")
+    async def recovery_status() -> dict[str, object]:
+        return manager().recovery.status()
+
+    @app.post("/api/recovery", status_code=202)
+    async def recover_receiver() -> dict[str, object]:
+        return manager().recovery.start()
+
     @app.get("/api/services", response_model=list[Service])
     async def services() -> list[Service]:
         return list(manager().scans.services.values())

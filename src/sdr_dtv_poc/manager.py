@@ -29,6 +29,7 @@ from .models import (
     State,
 )
 from .recording import Recordings
+from .recovery import Recovery
 from .scanning import Scans
 from .store import Store
 
@@ -103,6 +104,7 @@ class Manager:
             self.requests[session.request_id] = (session.id, request)
         self.recordings = Recordings(self)
         self.scans = Scans(self)
+        self.recovery = Recovery(self)
 
     def persist(self, session: Session) -> None:
         try:
@@ -210,12 +212,14 @@ class Manager:
             )
         return None
 
-    def check_idle(self) -> None:
+    def check_idle(self, *, ignore_restore: bool = False) -> None:
         if self.storage_failed:
             raise Unavailable("database_error")
-        if any(
-            s.restore in {Restore.pending, Restore.unknown, Restore.failed}
-            for s in self.sessions.values()
+        if self.recovery.task and not self.recovery.task.done():
+            raise Conflict("device_busy")
+        if not ignore_restore and (
+            self.recovery.required()
+            or any(s.restore == Restore.pending for s in self.sessions.values())
         ):
             raise Conflict("restore_unverified")
         if self.recordings.active:
@@ -474,6 +478,7 @@ class Manager:
                 self.stop_reason = EndReason.server_shutdown
                 self.stop_event.set()
                 await self.task
+            await self.recovery.close()
             await self.scans.close()
             await self.recordings.close()
         finally:

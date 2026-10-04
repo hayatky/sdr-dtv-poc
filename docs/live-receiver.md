@@ -122,7 +122,8 @@ cat data/live-host/host-cleanup
 
 RNDISの一時IPv4が消え、linkがdown、pcscd.socketが以前どおりactiveになり、
 RX子プロセスと共有lockが残っていないことも確認します。復元unknown/failedなら
-マーカー削除で解除せず、jobのbaselineと独立した読戻しを照合して復旧記録を残します。
+[USB再接続とWebUIの復旧ボタン](recovery.md)を使います。受信前の設定と別接続での
+読み戻しを照合し、復旧記録を残してから制限を解除します。マーカーの手動削除では解除しません。
 
 受信TS・録画・HLS・native resultは指定data directoryに残ります。Gitには追加しません。
 録画タブで再生とTSダウンロードを行えます。人は映像の乱れ、音切れ、音ずれを確認し、
@@ -137,3 +138,7 @@ Safariの視聴・録画再生は2026-10-04にユーザー確認済みで、画�
 同じ固定バージョンの`tstables`をPATHへ用意します。「接続を確認する」で局名取得の
 ツールの有無を確認できます。表示だけを更新しても過去の未取得名は補完されません。
 再スキャンでSDTを取得すると、局一覧のIDを保持して局名を更新します。
+
+既存の環境ファイルがある場合は、`uv run --locked python scripts/live-start.py data/live.env`で
+一時ホスト準備とComposeの起動をまとめて行えます。上記の手動起動と同時に実行しないでください。
+ホスト準備のプロセスだけがsudoを使い、Web APIからsudoやDockerを呼び出すことはありません。

@@ -63,7 +63,7 @@
 
   const ERRORS = {
     network_error: ['サーバーと通信できません', '自動的に再接続を試みます。続く場合はサーバーが起動しているか確認してください。'],
-    restore_unverified: ['受信機の設定を元に戻せたか確認できていません', '受信機の状態を確認して復旧の記録を残すまで、新しい受信とスキャンは開始できません。'],
+    restore_unverified: ['受信機の設定を元に戻せたか確認できていません', '受信機の状態を確認し、画面に表示された復旧操作を行うまで、新しい受信とスキャンは開始できません。'],
     storage_full: ['保存先の空き容量が足りません', '空き容量を増やしてから、接続の確認をやり直してください。'],
     session_busy: ['ほかの受信が動いています', '先に受信を停止してから操作してください。'],
     scan_active: ['スキャン中です', 'スキャンが終わるのを待つか、中止してから操作してください。'],
@@ -87,6 +87,10 @@
     scan_busy: ERRORS.scan_active, recording_busy: ERRORS.recording_active,
     insufficient_session_time: ['録画に必要な入力の残り時間が足りません', '5分録画には停止猶予を含む305秒の残量が必要です。受信を停止して選局し直してください。'],
     device_busy: ['別の処理が受信機を使用しています', '使用中の処理を確認してください。自動では停止しません。'],
+    board_unreachable: ['受信機に接続できません', 'USBを差し直して10秒待ってから、もう一度お試しください。同じエラーなら、Ubuntu側の復旧手順（docs/recovery.md）を確認してください。'],
+    settings_changed: ['受信機の設定を確認できません', '保存していた基準値と現在の設定が一致しません。受信を開始せず、機器と設定を確認してから再試行してください。'],
+    recovery_evidence_missing: ['復旧の確認記録を作成できません', '復旧結果を確認できる記録がありません。受信を開始せず、管理者が復旧状態を確認してください。'],
+    recovery_failed: ['受信機の復旧に失敗しました', 'USBの接続とホスト側の準備を確認してから、もう一度お試しください。'],
     playback_busy: ['別の録画を再生する準備中です', '準備が終わるまでお待ちください。'],
     recording_incomplete: ['録画が完了していません', '途中終了した録画は再生できません。'],
     recording_file_missing: ['録画ファイルがありません', '管理者が保存先を確認してください。'],
@@ -189,7 +193,7 @@
     tab: initialTab, bootstrap: null, suspended: false, mutating: false, mediaEpoch: 0,
     playback: null, playbackPlayer: {phase: 'none'}, globalError: null,
     conn: {status: 'loading', lastOkAt: null},
-    system: null,
+    system: null, recovery: null, recoveryChecked: false, recoveryAction: false, recoveryError: null, recoveryNotice: false,
     announce: '',
     diag: {inputKind: 'synthetic', phase: 'idle', result: null, checkedAt: null, error: null},
     scanForm: {preset: api.demo ? 'all' : 'synthetic', from: 13, to: 52, inputSelected: false},
@@ -235,7 +239,16 @@
   // ---------- derived state ----------
 
   const offline = () => state.conn.status !== 'ok';
-  const restoreBlocked = () => ['unknown', 'failed'].includes(state.system?.restore) || ['unknown', 'failed'].includes(session()?.restore) || ['unknown', 'failed'].includes(state.scan.current?.restore) || [state.watch.error, state.scan.error, state.rec.error].includes('restore_unverified');
+  const recoveryVisible = () => !api.demo && state.recovery &&
+    (Boolean(state.recovery.required) || ['running', 'failed'].includes(state.recovery.state) || state.recoveryAction);
+  const recoveryRunning = () => Boolean(state.recoveryAction) || state.recovery?.state === 'running';
+  const recoveryGate = () => !api.demo && Boolean(state.recovery?.required);
+  const restoreBlocked = () => {
+    // The recovery endpoint is authoritative for the live device gate. Session
+    // and scan history may retain an old restore value after a successful run.
+    if (!api.demo && state.recovery) return recoveryGate() || recoveryRunning();
+    return ['unknown', 'failed'].includes(state.system?.restore) || ['unknown', 'failed'].includes(session()?.restore) || ['unknown', 'failed'].includes(state.scan.current?.restore) || [state.watch.error, state.scan.error, state.rec.error].includes('restore_unverified');
+  };
   const storageLow = () => state.diag.result?.checks?.storage?.status === 'failed' || (state.system?.storage && !state.system.storage.ok);
   const recording = () => state.rec.current && state.rec.current.state === 'running';
   const session = () => state.watch.session;
@@ -332,7 +345,7 @@
   }
   function schedule() {
     clearTimeout(timer);
-    if (pageHidden || state.mutating) return;
+    if (pageHidden || (state.mutating && !state.recoveryAction)) return;
     const busy = sessionActive() || scanning() || recording() || state.recordings.playing;
     timer = setTimeout(refresh, offline() || !busy ? 5000 : 1000);
   }
@@ -349,8 +362,21 @@
     if (api.demo && next?.health?.hls === 'ok') state.player = {
       phase: api.demo.playerWillFail() ? 'failed' : 'showing', sessionId: next.id};
   }
+  function clearRecoveryUi() {
+    state.recoveryError = null;
+    state.recoveryNotice = true;
+    if (state.globalError === 'restore_unverified') state.globalError = null;
+    for (const target of [state.watch, state.scan, state.rec]) {
+      if (target.error === 'restore_unverified') {
+        target.error = null;
+        target.recovery = null;
+      }
+    }
+    state.recoveryChecked = false;
+    say('受信機の復旧を確認しました。新しい受信は自動で開始していません。');
+  }
   async function refresh() {
-    if (polling || pageHidden || state.mutating) return;
+    if (polling || pageHidden || (state.mutating && !state.recoveryAction)) return;
     polling = true; clearTimeout(timer);
     const own = epoch;
     try {
@@ -361,6 +387,12 @@
       state.bootstrap = boot;
       if (!api.demo && !state.scanForm.inputSelected) selectInput(boot.live_available ? 'live' : 'synthetic');
       state.system = status;
+      const previousRecovery = state.recovery;
+      state.recovery = status.recovery || null;
+      if (state.recovery?.error_code) state.recoveryError = state.recovery.error_code;
+      else if (state.recovery?.state === 'completed' && !state.recovery.required) state.recoveryError = null;
+      else if (!state.recovery?.required && state.recovery?.state !== 'failed') state.recoveryError = null;
+      if (state.recovery?.state === 'completed' && !state.recovery.required && previousRecovery?.state !== 'completed') clearRecoveryUi();
       state.services = {items: services, loaded: true};
       state.recordings.items = recordings || status.recordings;
       state.recordings.loaded = true;
@@ -430,6 +462,36 @@
         state.mutating = false; target.pending = false; state.watch.action = null;
         // A previous cancelled read may still be settling. Its finally schedules
         // the sole loop; this read starts immediately only if it is already free.
+        if (!pageHidden) { refresh(); schedule(); }
+      }
+    }
+  }
+  async function recoverReceiver() {
+    if (api.demo || state.mutating || !state.recoveryChecked || !recoveryVisible()) return;
+    const own = ++epoch;
+    state.mutating = true;
+    state.recoveryAction = true;
+    state.recoveryChecked = false;
+    state.recoveryError = null;
+    clearTimeout(timer); api.cancel();
+    if (state.recovery) state.recovery = {...state.recovery, state: 'running', error_code: null, required: true};
+    try {
+      const result = await api.recoverReceiver();
+      if (!valid(own)) return;
+      state.recovery = result;
+      state.recoveryError = result.error_code || null;
+      if (result.state === 'completed' && !result.required) clearRecoveryUi();
+      else if (result.state === 'running') say('受信機を確認して復旧しています。完了までお待ちください。');
+      else if (result.state === 'failed') say(errorText(result.error_code || 'recovery_failed')[0]);
+    } catch (error) {
+      if (valid(own)) {
+        state.recoveryError = error.code;
+        if (state.recovery) state.recovery = {...state.recovery, state: 'failed', error_code: error.code, required: true};
+        noteError(error); say(errorText(error.code)[0]);
+      }
+    } finally {
+      if (own === epoch) {
+        state.mutating = false; state.recoveryAction = false;
         if (!pageHidden) { refresh(); schedule(); }
       }
     }
@@ -596,6 +658,44 @@
     const [title, body] = errorText(code);
     return notice('danger', title, body);
   }
+  function recoveryFailureGuidance(code) {
+    if (code === 'board_unreachable') return [
+      'USBを差し直して10秒待ってから、もう一度お試しください。同じエラーなら、Ubuntu側でこのアプリのフォルダーに移動し、',
+      el('code', null, 'uv run --locked python scripts/live-start.py data/live.env'),
+      ' を実行してから再試行してください。詳しい手順は docs/recovery.md を確認してください。',
+    ];
+    if (code === 'device_busy') return '別の処理が受信機を使用しています。ほかの受信処理が終わるまで待ってから再試行してください。自動では停止しません。';
+    if (code === 'settings_changed') return '保存していた基準値と現在の設定が一致しません。再試行せず、受信機の設定を確認してください。';
+    if (code === 'recovery_evidence_missing') return '復旧の確認記録がありません。受信を開始せず、管理者が復旧状態を確認してください。';
+    if (code === 'database_error') return '復旧結果を保存できませんでした。復旧できたと判断せず、サーバーと保存先を確認してから再試行してください。';
+    if (code === 'recovery_failed') return 'USBの接続とホスト側の準備を確認してから、もう一度お試しください。';
+    return code ? errorText(code)[1] : null;
+  }
+  function renderRecoveryPanel() {
+    if (!recoveryVisible()) return null;
+    const running = recoveryRunning();
+    const code = state.recoveryError || state.recovery?.error_code;
+    const title = running ? '受信機を確認して復旧しています…'
+      : code ? errorText(code)[0] : '受信機の復旧が必要です';
+    const body = running
+      ? '最大30秒で受信機の設定を確認して元に戻します。新しい受信やスキャンは自動で開始しません。'
+      : '前回の受信後に、受信機の設定を元に戻せたか確認できませんでした。サーバーを再起動するだけでは、視聴・スキャンの制限は解除されません。';
+    return el('section', {class: ['notice', 'tone-danger'], role: 'alert', 'aria-labelledby': 'recovery-title'},
+      el('p', {class: 'notice-title', id: 'recovery-title'}, title),
+      el('p', null, body),
+      code && !running ? el('p', {class: 'hint'}, recoveryFailureGuidance(code)) : null,
+      !running ? el('ol', {class: 'recovery-steps'},
+        el('li', null, '受信機に異常な発熱がないことを確認してください。異常があれば操作を止めてください。'),
+        el('li', null, 'ボードのSLAVE端子につながるUSBケーブルをいったん抜いて差し直してください。RFケーブルは接続したままにしてください。'),
+        el('li', null, '確認欄にチェックを入れて、「受信機を確認して復旧する」を押してください。')) : null,
+      !running ? el('label', {class: 'radio'},
+        el('input', {type: 'checkbox', checked: state.recoveryChecked, disabled: state.mutating,
+          onChange: event => { state.recoveryChecked = event.target.checked; }}),
+        '異常な発熱がないこととUSBの接続を確認しました') : null,
+      el('div', {class: 'actions'}, button(running ? '復旧しています…' : '受信機を確認して復旧する', recoverReceiver,
+        {kind: 'primary', disabled: running || state.mutating || !state.recoveryChecked})),
+    );
+  }
   function button(label, onClick, options) {
     const o = options || {};
     return el('button', {
@@ -688,6 +788,13 @@
   function renderGlobalNotices() {
     const list = [];
     if (state.globalError) list.push(errorNotice(state.globalError));
+    if (state.recoveryNotice && !restoreBlocked()) list.push(notice('ok', '受信機の復旧が完了しました',
+      '視聴タブで局を選ぶと受信を再開できます。録画は自動再開しません。', [
+        button('視聴タブを開く', () => { state.recoveryNotice = false; setTab('watch', true); }, {kind: 'primary'}),
+        button('閉じる', () => { state.recoveryNotice = false; }, {kind: 'secondary'}),
+      ]));
+    const recoveryPanel = renderRecoveryPanel();
+    if (recoveryPanel) list.push(recoveryPanel);
     if (offline()) {
       list.push(notice('danger', 'サーバーと通信できません',
         `自動的に再接続を試みています。${state.conn.lastOkAt
@@ -695,9 +802,9 @@
           : 'まだサーバーから情報を取得できていません。'}録画中だった場合も、録画はサーバー側の期限で停止します。`,
         [button('今すぐ再接続する', refresh, {kind: 'secondary'})]));
     }
-    if (restoreBlocked()) {
+    if (restoreBlocked() && !recoveryPanel) {
       list.push(notice('danger', '受信機の設定を元に戻せたか確認できていません',
-        '前回の受信の後、受信機の設定を元に戻せたかを確認できませんでした。安全のため、確認が済むまで新しい受信とスキャンは開始できません。受信機の状態を確認し、復旧の記録を残してください。'));
+        '前回の受信の後、受信機の設定を元に戻せたかを確認できませんでした。安全のため、確認が済むまで新しい受信とスキャンは開始できません。受信機の状態を確認してから、接続を確認し直してください。'));
     }
     if (storageLow()) {
       list.push(notice('warn', '保存先の空き容量が足りません',
@@ -1193,7 +1300,7 @@
         pageHidden = true;
         clearTimeout(timer);
         epoch += 1; api.cancel(); state.suspended = true; resetPlayer();
-        state.mutating = false; state.watch.action = null;
+        state.mutating = false; state.recoveryAction = false; state.watch.action = null;
         state.scan.pending = false; state.rec.pending = false;
         if (state.diag.phase === 'running') state.diag.phase = 'idle';
       });

@@ -254,7 +254,7 @@ IDは認証情報ではありません。インターネットへ公開するサ
 | 409 `recording_busy` | 録画停止を待つ。選局・scan・二重録画は禁止 |
 | 409 `session_busy` / `scan_busy` | 先の操作の停止・回収を待つ |
 | 409 `device_busy` | 別プロセスが同じ排他を保持。勝手に停止しない |
-| 409 `restore_unverified` | 作業者の復元照合が必要。自動再試行しない |
+| 409 `restore_unverified` | USB接続を確認し、WebUIの復旧ボタンで設定を照合する。自動再試行しない |
 | 409 `insufficient_session_time` | 要求時間を満たせない。5分録画を開始しない |
 | 409 `storage_full` / `recording_output_limit` | 空き容量・有限上限を確認 |
 | 409 `recording_incomplete` / `recording_file_missing` / `recording_unavailable` | partial・未完了・欠損を再生成功として扱わない |
@@ -289,3 +289,24 @@ POST `/api/recordings/{id}/delete`はCSRF/Origin保護付きで、確認した�
 UIでは再生を閉じてから確認ボタンで削除します。他の画面の再生は以降のsegment取得が
 できなくなる旨も表示します。session/nativeの診断TS・IQ・別途保存したMP4は対象外です。
 従って録画の削除だけで診断用データ全体の容量が回収されるわけではありません。
+
+## 受信機の復旧
+
+`GET /api/recovery`は`state`（idle/running/completed/failed）、`required`、
+`error_code`を返します。状態取得だけでは機器を操作しません。
+`POST /api/recovery`は空のJSONを受け取り、CSRF・Origin検査と共通の機器排他を経て
+復旧処理を開始します（202）。実行中の同じ要求は処理を増やさず現在の状態を返します。
+復旧中は受信・スキャンを開始できません。受信中・録画中・スキャン中の復旧も拒否します。
+
+対象は保存された中断ジョブと受信前のRX設定です。現在値が受信前または中断時の
+設定と一致する場合だけ必要なRX設定を戻し、別の接続で全項目を読み直します。
+ワーカーは最大25秒、親は最大30秒で停止・回収します。任意のパス・コマンド・
+設定値はAPIから受け取りません。RX取得・TX・ファームウェア操作も行いません。
+
+成功時は確認記録を保存して警告を解除します。受信・録画は自動再開しません。
+途中の失敗、保存済みの録画、元の機器ジョブは保持します。復旧確認済みの証拠が
+ありDBの更新前に終了した場合は、証拠を照合して更新を再開できます。
+
+失敗は`board_unreachable`、`settings_changed`、`recovery_evidence_missing`、
+`recovery_failed`として返し、未確認の制限を維持します。利用者の手順は
+[復旧ガイド](recovery.md)を参照してください。再読み込み・再起動では自動実行しません。
