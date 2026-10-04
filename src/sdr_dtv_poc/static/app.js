@@ -73,6 +73,8 @@
     source_missing: ['入力ファイルが見つかりません', '接続の確認で入力ファイルの状態を確認してください。'],
     source_not_registered: ['入力ファイルが登録されていません', '管理者が保存TSの設定を確認してください。'],
     database_error: ['サーバーの記録に失敗しました', '時間をおいてから、もう一度お試しください。'],
+    recording_delete_failed: ['録画ファイルの削除が完了しませんでした', '保存先の権限や状態を確認し、削除を再試行してください。'],
+    recording_deleted: ['この録画は削除されています', '録画一覧を更新してください。'],
     session_history_limit: ['受信の履歴が上限に達しました', '管理者が保存データを整理するまで、新しい受信は開始できません。'],
     feature_not_implemented: ['この機能はまだ使えません', '後続の実装を待ってください。'],
   };
@@ -191,7 +193,7 @@
     watch: {targetRef: null, session: null, action: null, error: null, confirmStop: false},
     player: {phase: 'none', sessionId: null},
     rec: {current: null, last: null, pending: false, error: null},
-    recordings: {items: [], loaded: false, playing: null, notice: null},
+    recordings: {items: [], loaded: false, playing: null, notice: null, deleteId: null},
   });
 
   const refs = {};
@@ -473,6 +475,16 @@
     resetPlayer(); state.playback = null; state.recordings.playing = rec.id;
     return mutate(state.recordings, () => api.startPlayback(rec.id), next => {
       if (state.recordings.playing === rec.id) state.playback = next;
+    });
+  }
+
+  function deleteRecording(rec) {
+    if (active(rec) || state.recordings.playing === rec.id || state.mutating) return;
+    return mutate(state.recordings, () => api.deleteRecording(rec.id), () => {
+      state.recordings.items = state.recordings.items.filter(r => r.id !== rec.id);
+      state.recordings.deleteId = null;
+      state.recordings.notice = '録画と再生用ファイルを削除しました。';
+      say(state.recordings.notice);
     });
   }
 
@@ -1123,7 +1135,16 @@
                 button('再生する', () => startPlayback(r), {kind: 'secondary', disabled: !r.playback_available || state.mutating || offline()}),
                 r.download_available && !api.demo
                   ? el('a', {class: 'btn btn-secondary', href: r.download_url, download: ''}, 'TSファイルをダウンロード')
-                  : button('TSファイルをダウンロード', () => { list.notice = '画面だけのデモのため、ダウンロードしません。'; }, {kind: 'secondary', disabled: !r.download_available})),
+                  : button('TSファイルをダウンロード', () => { list.notice = '画面だけのデモのため、ダウンロードしません。'; }, {kind: 'secondary', disabled: !r.download_available}),
+                !api.demo ? button(r.deletion_pending ? '削除を再試行する' : '削除する', () => { list.deleteId = r.id; },
+                  {kind: 'danger', disabled: active(r) || list.playing === r.id || state.mutating || offline()}) : null),
+              list.playing === r.id ? el('p', {class: 'hint'}, '削除するには、先に再生を閉じてください。') : null,
+              r.deletion_pending ? el('p', {class: 'hint'}, 'ファイルの削除が完了していません。削除を再試行してください。') : null,
+              list.deleteId === r.id ? notice('warn', 'この録画を削除しますか？',
+                '録画TSと再生用ファイルを削除します。元に戻せません。他の画面でこの録画を再生している場合も、続けて再生できなくなります。', [
+                  button('録画を削除する', () => deleteRecording(r), {kind: 'danger', disabled: state.mutating || offline()}),
+                  button('削除をキャンセルする', () => { list.deleteId = null; }, {kind: 'secondary'}),
+                ]) : null,
               tech('技術的な値を表示', [
                 ['録画ID', r.id], ['受信セッションID', r.session_id], ['物理チャンネル', r.physical_channel ? `${r.physical_channel}ch` : '—'],
                 ['状態（state / end_reason）', `${r.state} / ${r.end_reason || '—'}`], ['途中終了（partial）', r.partial ? 'はい' : 'いいえ'],

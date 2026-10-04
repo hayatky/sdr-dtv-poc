@@ -3,11 +3,34 @@
 
 import os
 import re
+import shutil
 from collections.abc import Iterator
 from pathlib import Path
 from typing import BinaryIO
+from uuid import UUID
 
 NAME = re.compile(r"[a-zA-Z0-9_-]+\.(?:m3u8|ts|m4s|mp4)\Z")
+
+
+def remove_owned_directory(root: Path, category: str, owner: UUID) -> None:
+    """Delete only an ID-owned directory, never follow a replaced parent link."""
+    assert category in {"recordings", "playback"}
+    assert shutil.rmtree.avoids_symlink_attacks
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        try:
+            parent = os.open(category, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+        except FileNotFoundError:
+            return
+        try:
+            try:
+                shutil.rmtree(str(owner), dir_fd=parent)
+            except FileNotFoundError:
+                pass
+        finally:
+            os.close(parent)
+    finally:
+        os.close(fd)
 
 
 def open_registered(root: Path, relative: str) -> BinaryIO:

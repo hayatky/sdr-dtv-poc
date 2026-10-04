@@ -6,7 +6,9 @@ WebUIから診断、合成13・14chのスキャン、保存した局の選局、
 手動TS録画、録画の再生とオリジナルTSのダウンロードを操作できます。
 実機用のローカルDocker Composeでは、固定した研究元の受信処理と外部CASを使います。
 [導入・停止手順](docs/live-receiver.md)と[実機を含む検証記録](docs/issue-5-validation.md)を参照してください。
-人による視聴品質とSafariは未確認で、段階3全体は完了扱いにしていません。
+Safariでの両チャンネルの視聴・録画再生はユーザー確認済みです。
+その際の画質改善要望を受け、映像8 Mbps・最大12 Mbpsへ変更し、録画の手動削除を追加しました。
+変更後の主観的な画質は再確認待ちです。
 
 [Issue #29の実装と引継ぎ](docs/issue-29-handoff.md)、
 [UI接続の検証記録](docs/issue-29-validation.md)を参照してください。
@@ -109,8 +111,9 @@ sh scripts/check.sh
 [段階2の検証・UIへの引継ぎ](docs/issue-4-backend-validation.md)を参照してください。
 GitHub Actionsは無効のままです。ローカルの検証成功をCI実行成功とは記載しません。
 
-研究元の実機成果と、このPoCの合成デモの成功は別です。実機への到達性・RX復元、
-実機でのライブ再生・録画、macOS/WindowsのDocker Desktop、Safariでの再生は未検証です。
+研究元の実機成果、PoCの合成デモ、実機での視聴・録画は別の根拠として記録します。
+macOS/WindowsのDocker Desktopで受信バックエンドを動かすことは未検証です。
+Safariの確認は、Ubuntuで動くバックエンドへSSH転送で接続した結果です。
 受信処理の自作wrapper等の配布条件も確認が必要で、既定imageに同梱していません。
 
 ## License

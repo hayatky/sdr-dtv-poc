@@ -89,9 +89,12 @@ class Store:
         item: BaseModel,
         request: StrictModel | None = None,
         artifact: tuple[Artifact, str] | None = None,
+        revoke_artifact_ids: tuple[str, ...] = (),
     ) -> None:
         assert table in {"scans", "recordings", "playbacks", "services"}
         with self.db:
+            for artifact_id in revoke_artifact_ids:
+                self.db.execute("DELETE FROM artifacts WHERE id=?", (artifact_id,))
             if artifact:
                 value, relative = artifact
                 self.db.execute(

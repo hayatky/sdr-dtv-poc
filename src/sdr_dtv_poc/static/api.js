@@ -117,6 +117,7 @@
       startRecording: async (session_id, request_id) => recordingView(await start('/api/recordings', {request_id, session_id, duration_seconds: 300})),
       getRecording: async id => recordingView(await request(`/api/recordings/${encodeURIComponent(id)}`)),
       stopRecording: async id => recordingView(await post(`/api/recordings/${encodeURIComponent(id)}/stop`)),
+      deleteRecording: id => post(`/api/recordings/${encodeURIComponent(id)}/delete`),
       startPlayback: id => post(`/api/recordings/${encodeURIComponent(id)}/playback`),
       getPlayback: id => request(`/api/recordings/${encodeURIComponent(id)}/playback`),
     };

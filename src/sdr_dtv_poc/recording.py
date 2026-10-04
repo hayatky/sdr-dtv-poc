@@ -9,11 +9,13 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, BinaryIO
 from uuid import UUID, uuid4
 
-from .artifacts import open_registered
-from .media import Media, timestamp
+from .artifacts import open_registered, remove_owned_directory
+from .media import ENCODING_PROFILE, Media, timestamp
 from .models import STOP_GRACE, Artifact, EndReason, Playback, Recording, RecordingStart, State
 
-PLAYBACK_LIMIT = 180
+# HD conversion stays finite while allowing concurrent live encoding on the
+# bounded CPU allocation. Playback begins as soon as the first segments exist.
+PLAYBACK_LIMIT = 600
 
 if TYPE_CHECKING:
     from .manager import Manager
@@ -32,6 +34,7 @@ class Recordings:
         self.timer: asyncio.Task[None] | None = None
         self.playbacks: dict[UUID, Playback] = {}
         self.playback_task: asyncio.Task[None] | None = None
+        self.playback_owner: UUID | None = None
         self.media: Media | None = None
         for body, request in manager.store.records("recordings"):
             record = Recording.model_validate_json(body)
@@ -75,7 +78,7 @@ class Recordings:
             raise Unavailable("database_error")
         if self.active:
             raise Conflict("recording_busy")
-        if len(self.items) >= 1000:
+        if sum(r.deleted_at is None for r in self.items.values()) >= 1000:
             raise Conflict("recording_history_limit")
         session = m.sessions[request.session_id]
         if session.state != State.running or not session.bytes_received:
@@ -236,6 +239,9 @@ class Recordings:
     def get(self, recording_id: UUID) -> Recording:
         record = self.items[recording_id]
         record.file_available = False
+        if record.deleted_at or record.deletion_pending:
+            record.download_url = None
+            return record
         if record.artifact_id:
             artifact = self.manager.store.artifact(str(record.artifact_id))
             if artifact:
@@ -248,12 +254,66 @@ class Recordings:
                     pass
         return record
 
+    def delete(self, recording_id: UUID) -> Recording:
+        from .manager import Conflict, Unavailable
+
+        record = self.items[recording_id]
+        if record.deleted_at:
+            return record
+        if record.state in {State.starting, State.running, State.stopping}:
+            raise Conflict("recording_busy")
+        previous = self.playbacks.get(recording_id)
+        if (previous and previous.state not in {"completed", "failed", "interrupted"}) or (
+            self.playback_owner == recording_id
+            and self.playback_task is not None
+            and not self.playback_task.done()
+        ):
+            raise Conflict("playback_busy")
+        # Include older encoding profiles, but preserve the session/native TS.
+        playbacks = [
+            p
+            for body, _ in self.manager.store.records("playbacks")
+            if (p := Playback.model_validate_json(body)).recording_id == recording_id
+        ]
+        artifacts = [record.artifact_id, *(p.artifact_id for p in playbacks)]
+        pending = record.model_copy(
+            update={"deletion_pending": True, "file_available": False, "download_url": None}
+        )
+        try:
+            # Revoke all URLs atomically before removing any files. A failed
+            # cleanup stays visible for retry, including after a server restart.
+            self.manager.store.save_record(
+                "recordings",
+                pending,
+                revoke_artifact_ids=tuple(str(a) for a in artifacts if a is not None),
+            )
+        except sqlite3.Error:
+            self.manager.storage_failed = True
+            raise Unavailable("database_error") from None
+        self.items[recording_id] = pending
+        try:
+            for playback in playbacks:
+                remove_owned_directory(self.manager.settings.data_dir, "playback", playback.id)
+            remove_owned_directory(self.manager.settings.data_dir, "recordings", record.id)
+        except OSError:
+            raise Unavailable("recording_delete_failed") from None
+        deleted = pending.model_copy(update={"deletion_pending": False, "deleted_at": timestamp()})
+        try:
+            self.manager.store.save_record("recordings", deleted)
+        except sqlite3.Error:
+            self.manager.storage_failed = True
+            raise Unavailable("database_error") from None
+        self.items[recording_id] = deleted
+        return deleted
+
     def start_playback(self, recording_id: UUID) -> Playback:
         from .manager import Conflict, Unavailable
 
         record = self.get(recording_id)
+        if record.deleted_at or record.deletion_pending:
+            raise Conflict("recording_deleted")
         previous = self.playbacks.get(recording_id)
-        if previous:
+        if previous and previous.encoding_profile == ENCODING_PROFILE:
             return previous
         if self.manager.storage_failed:
             raise Unavailable("database_error")
@@ -278,6 +338,7 @@ class Recordings:
         ):
             raise Conflict("storage_full")
         playback = Playback(
+            encoding_profile=ENCODING_PROFILE,
             id=uuid4(),
             recording_id=record.id,
             started_at=timestamp(),
@@ -289,6 +350,7 @@ class Recordings:
             self.manager.storage_failed = True
             raise Unavailable("database_error") from None
         self.playbacks[record.id] = playback
+        self.playback_owner = record.id
         self.playback_task = asyncio.create_task(self.convert(record, playback))
         return playback
 

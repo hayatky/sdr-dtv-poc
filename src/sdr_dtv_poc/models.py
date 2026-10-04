@@ -220,9 +220,12 @@ class Recording(BaseModel):
     artifact_id: UUID | None = None
     download_url: str | None = None
     file_available: bool = False
+    deletion_pending: bool = False
+    deleted_at: str | None = None
 
 
 class Playback(MediaStatus):
+    encoding_profile: str | None = None
     id: UUID
     recording_id: UUID
     started_at: str

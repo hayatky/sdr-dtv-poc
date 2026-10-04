@@ -23,8 +23,8 @@ class Settings:
     saved_sources: dict[str, Source] = field(default_factory=dict)
     max_output_bytes: int = 4_000_000_000
     max_recording_bytes: int = 2_000_000_000
-    max_hls_bytes: int = 32 * 1024 * 1024
-    max_playback_bytes: int = 256 * 1024 * 1024
+    max_hls_bytes: int = 64 * 1024 * 1024
+    max_playback_bytes: int = 640 * 1024 * 1024
     media_queue_chunks: int = 256
     device_lock_dir: Path | None = None
     min_free_bytes: int = 128 * 1024 * 1024

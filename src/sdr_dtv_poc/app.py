@@ -291,13 +291,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/recordings", response_model=list[Recording])
     async def recordings() -> list[Recording]:
-        return [manager().recordings.get(key) for key in manager().recordings.items]
+        return [
+            manager().recordings.get(key)
+            for key, record in manager().recordings.items.items()
+            if record.deleted_at is None
+        ]
 
     @app.get("/api/recordings/{recording_id}", response_model=Recording)
     async def recording_get(recording_id: UUID) -> Recording:
-        if recording_id not in manager().recordings.items:
+        if (
+            recording_id not in manager().recordings.items
+            or manager().recordings.items[recording_id].deleted_at
+        ):
             raise HTTPException(404, "recording_not_found")
         return manager().recordings.get(recording_id)
+
+    @app.post("/api/recordings/{recording_id}/delete", response_model=Recording)
+    async def recording_delete(recording_id: UUID) -> Recording:
+        if recording_id not in manager().recordings.items:
+            raise HTTPException(404, "recording_not_found")
+        return manager().recordings.delete(recording_id)
 
     @app.post("/api/recordings/{recording_id}/stop", status_code=202, response_model=Recording)
     async def recording_stop(recording_id: UUID) -> Recording:
@@ -313,7 +326,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/recordings/{recording_id}/playback", response_model=Playback)
     async def recording_playback(recording_id: UUID) -> Playback:
-        await recording_get(recording_id)
+        record = await recording_get(recording_id)
+        if record.deletion_pending:
+            raise HTTPException(409, "recording_deleted")
         if recording_id not in manager().recordings.playbacks:
             raise HTTPException(404, "playback_not_started")
         return manager().recordings.playbacks[recording_id]

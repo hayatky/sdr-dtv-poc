@@ -16,7 +16,8 @@ PR #34で通常の画面をAPI・HLSへ接続し、合成TSの映像・音声を
 #4・#18・#29は完了し、PR #34はmainの`dd60fb2aba08624c50225502f757c90741958872`へ統合済みです。
 実機入力と固定した外部CASを接続し、Compose WebUIで21ch/27ch、Chromiumの受信中A/V、
 実時間300秒録画・再生・ダウンロード・停止復元を確認しました。
-Safariと人による視聴品質は未確認で、段階3全体は完了扱いにしません。
+2026-10-04にSafariで両チャンネルの視聴・録画再生をユーザーが確認しました。
+画質改善と手動削除の要望へ対応し、変更後の画質は再確認待ちです。
 以下の初期記録にある研究元#63の範囲を、そのまま現在の担当範囲とは扱いません。
 
 Issue #3の作業ではFastAPI・SQLite・合成TSの子ワーカー・操作保護・IDによる配信、
@@ -279,7 +280,5 @@ Python用.gitignoreに加え、`.env`/`.env.*`（`.env.example`は例外）、`d
 - [全階層復元設計](https://github.com/hayatky/hlfec-sdr-lab/blob/b1dcbf3688db79f149ff3a255639a36860ec3924/docs/isdb-t-all-layer-reconstruction.md)
 - [最終630秒RX・A/V根拠](https://github.com/hayatky/hlfec-sdr-lab/blob/b1dcbf3688db79f149ff3a255639a36860ec3924/experiments/EXP-20261001-005-all-layer-rx-after-reconnect.md)
 
-**現在の着手先は段階3の#5、最初の作業は#19です。**
-[#5への引継ぎ](docs/issue-5-handoff.md)で検証済みの範囲と残る作業を確認してください。
-#20で研究元の別の物理チャンネルの成果を照合し、実機入力の接続とRX復元・排他の
-仕様を確認してから#21・#22へ進みます。Safariと人による視聴確認は#23に残ります。
+**現在地は[段階3の検証記録](docs/issue-5-validation.md)を参照してください。**
+[#5への引継ぎ](docs/issue-5-handoff.md)は着手時の記録です。
