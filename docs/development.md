@@ -171,7 +171,8 @@ uv run --locked python scripts/smoke-stage2.py --origin http://localhost:18324 \
 非rootコンテナ、有限時間の試験と終了手順は[live-receiver.md](live-receiver.md)、
 成功・失敗・未実行の区別は[実機での検証記録](validation-live.md)を参照してください。
 通常の構成は同梱した`native/receiver`を使い、起動時にhashを確認します。
-既存の手動管理環境で使う`prepare-live.py`は、研究元のGitオブジェクトから抽出する補助ツールです。
+`prepare-live.py`は、取得済みの非公開Gitオブジェクトを持つ保守担当者向けの補助ツールです。
+元の研究リポジトリは今後も非公開で、通常の開発・導入でこのツールや取得権限は必要ありません。
 native imageの共有ライブラリはこのPythonファイルのhash照合には含まれないため、
 既存の固定ビルド手順とimage ID・package記録を併用します。
 

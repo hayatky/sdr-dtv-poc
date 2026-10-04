@@ -61,14 +61,15 @@ macOS、Windows、別ボード/FWへの互換性は未確認です。通常の�
 
 ## ソースと処理
 
-研究元の基点`b1dcbf3688db79f149ff3a255639a36860ec3924`で固定したnative imageを
-[receiver.md](receiver.md)の手順でビルドします。実機用Pythonソースは
-[研究元PR #76](https://github.com/hayatky/hlfec-sdr-lab/pull/76)の
-`0b00caacacacd63f95b284575fa843583085f78f`を使います。
+元の研究リポジトリは今後も非公開です。以下の旧経路は、必要なGitオブジェクトと
+旧native imageを既に保持している保守担当者だけを対象とします。新規利用者は冒頭の通常起動を使ってください。
+旧構成では`b1dcbf3688db79f149ff3a255639a36860ec3924`を基点とするnative imageと、
+`0b00caacacacd63f95b284575fa843583085f78f`に由来するPythonソースを使います。
 `live_sources.py`の12ファイルのSHA-256を起動時に照合し、相違があれば開始しません。
 通常構成では必要なwrapperを`native/receiver`へGPL-3.0-or-laterで同梱し、
 ライセンス表示追加後のハッシュ集合も照合します。以下の従来構成では、
-利用権限のある人が研究元から別途取得して読み取り専用でbind mountします。
+既に取得済みのソースを読み取り専用でbind mountします。由来と収録後のハッシュは
+[同梱ソースの説明](../native/README.md)で確認できます。
 
 経路はIIOD → ci16_le 6.4 MS/s → 既存80/63変換 → cf32_le 512000000/63 S/s →
 既存の階層別復調 → 188 byte TSです。独立した復調器を複製しません。
@@ -95,8 +96,7 @@ APIからsudo・Docker socketを操作しません。
 既存の研究checkoutやデータを上書きせず、新しいGit外ディレクトリを使います。
 
 ```sh
-# 別途取得した研究checkoutへ固定コミットを取得する（checkoutは変更しない）
-git -C /path/to/research fetch origin 0b00caacacacd63f95b284575fa843583085f78f
+# 必要な固定Gitオブジェクトを既に保持している保守担当者向け。新規取得は不要
 uv run --locked python scripts/prepare-live.py /path/to/research data/live-source
 mkdir -p data/live-config data/live-app data/live-host
 chmod 700 data/live-config data/live-app data/live-host
