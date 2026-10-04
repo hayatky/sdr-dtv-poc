@@ -1,4 +1,4 @@
-# 検証記録の一覧と確認した範囲
+# 検証結果と対応環境
 
 2026-10-04（日本時間）。このPoCを導入・評価する際に参照する検証記録をまとめています。
 操作方法は[README](../README.md)、実機の準備は[実機からWebUIへ接続する手順](live-receiver.md)、
@@ -8,9 +8,9 @@ USB切断後の対応は[復旧手順](recovery.md)を参照してください�
 
 | 記録 | 確認できること |
 |---|---|
-| [Compose/uvの導入と動作](issue-6-validation.md) | 新しい設定・保存先での合成デモ、実画面の操作、起動・停止、ホストから引き継いだ環境 |
-| [実機での検証](issue-5-validation.md) | スキャン、局の保存、代表2チャンネルの視聴、録画、設定の復元 |
-| [受信品質の比較](issue-37-validation.md) | チャンネル別ゲインとHLS起動時のキューの修正、300秒録画の品質、USB切断の失敗記録 |
+| [Compose/uvの導入と動作](validation-install.md) | 新しい設定・保存先での合成デモ、実画面の操作、起動・停止、ホストから引き継いだ環境 |
+| [実機での検証](validation-live.md) | スキャン、局の保存、代表2チャンネルの視聴、録画、設定の復元 |
+| [受信品質の比較](validation-reception-quality.md) | チャンネル別ゲインとHLS起動時のキューの修正、300秒録画の品質、USB切断の失敗記録 |
 | [配布内容と依存物の確認](publication-audit.md) | 同梱物・別途取得する依存物、出典とライセンス、ローカルイメージの確認範囲 |
 
 合成デモは実機での受信を示しません。機械的なA/V検査と人による視聴、
@@ -45,3 +45,16 @@ PR #39でmain `c41af0e`へ統合され、この実装を使ってCompose/uvの�
 USB切断の原因と恒久的な安定性は[PoC #38](https://github.com/hayatky/sdr-dtv-poc/issues/38)で調査しています。
 受信処理の一部をボード内へ移す[研究元#74](https://github.com/hayatky/hlfec-sdr-lab/issues/74)と、
 CATV経由のBS受信は将来の拡張です。前者は対象ボードで未実証、後者はこのWebUIでは未実装です。
+
+## 過去の記録
+
+以下は整理前の固定コミットにある記録です。実装の経緯や個別試験の詳細を調べる際に参照してください。
+記録当時の未実装・確認待ちを、現在の未達条件として扱わないでください。
+現在の操作・仕様はREADME、操作ガイド、API・受信処理の資料を参照してください。
+
+| 内容 | 過去の詳細 |
+|---|---|
+| 初期構想と研究元からの引継ぎ | [初期コンテキスト](https://github.com/hayatky/sdr-dtv-poc/blob/2bf44f85e943dbdc7d00f71b584561d3b1639cfd/PROJECT-CONTEXT.md) |
+| 基盤とバックエンド | [基盤の検証](https://github.com/hayatky/sdr-dtv-poc/blob/2bf44f85e943dbdc7d00f71b584561d3b1639cfd/docs/issue-3-validation.md)、[スキャン・録画の検証](https://github.com/hayatky/sdr-dtv-poc/blob/2bf44f85e943dbdc7d00f71b584561d3b1639cfd/docs/issue-4-backend-validation.md) |
+| WebUIの実装 | [模擬画面の設計](https://github.com/hayatky/sdr-dtv-poc/blob/2bf44f85e943dbdc7d00f71b584561d3b1639cfd/docs/webui-design.md)、[API接続の仕様と引継ぎ](https://github.com/hayatky/sdr-dtv-poc/blob/2bf44f85e943dbdc7d00f71b584561d3b1639cfd/docs/issue-29-handoff.md)、[API接続の検証](https://github.com/hayatky/sdr-dtv-poc/blob/2bf44f85e943dbdc7d00f71b584561d3b1639cfd/docs/issue-29-validation.md) |
+| 実機での検証と品質改善 | [実機試験の全記録](https://github.com/hayatky/sdr-dtv-poc/blob/2bf44f85e943dbdc7d00f71b584561d3b1639cfd/docs/issue-5-validation.md)、[品質比較の全記録](https://github.com/hayatky/sdr-dtv-poc/blob/2bf44f85e943dbdc7d00f71b584561d3b1639cfd/docs/issue-37-validation.md)、[実機検証の引継ぎ](https://github.com/hayatky/sdr-dtv-poc/blob/2bf44f85e943dbdc7d00f71b584561d3b1639cfd/docs/issue-5-handoff.md) |

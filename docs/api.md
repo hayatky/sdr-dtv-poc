@@ -1,6 +1,6 @@
 # API・状態・WebUIとの接点
 
-段階2のバックエンドは、段階1のmainから単独で起動できます。実装の仕様は
+APIの入力・出力の仕様は
 `src/sdr_dtv_poc/models.py`と`GET /openapi.json`です。スキャン・HLS・録画・録画再生は
 合成入力と設定済みの`live`で利用できます。実機設定がなければ503 `live_not_configured`です。`saved_ts`は管理者が
 登録した入力の視聴・録画に対応し、範囲スキャンには未対応です。
@@ -8,7 +8,7 @@
 通常のWebUIは本書のAPIへ接続します。画面だけの模擬デモは`?mode=mock`で選びます。
 一覧APIから画面状態を構成し、全体状態APIは追加していません。
 UI内の残り時間や段階表示は表示用の推定・変換であり、APIの追加フィールドではありません。
-[接続実装と引継ぎ](issue-29-handoff.md)、[検証記録](issue-29-validation.md)を参照してください。
+画面との接点は[WebUIの設計](webui-design.md)、確認した範囲は[検証結果](validation.md)を参照してください。
 
 ## 操作の保護とID
 
@@ -51,7 +51,7 @@ UI内の残り時間や段階表示は表示用の推定・変換であり、API
 予約済みだったGETの再生APIで変換を起動しません。副作用は新設したPOSTへ分け、CSRFで保護します。
 再生失敗を自動再試行せず、同じ録画へのPOSTは失敗を含む既存ジョブを返します。
 
-## スキャン・サービス・選局（#14）
+## スキャン・サービス・選局
 
 ```json
 {"request_id":"11111111-1111-4111-8111-111111111111",
@@ -120,7 +120,7 @@ Serviceの応答例:
 従来の`input_kind/source_id/duration_seconds`指定も利用可能で、保存サービスを指定しない場合の
 `selected_service_id`は既定1です。HLS不要の診断だけは`enable_hls=false`にできます。
 
-## セッション・HLS（#13・#15）
+## セッション・HLS
 
 ```text
 starting → running → stopping → completed
@@ -170,7 +170,7 @@ UI側は同じsession IDでvideoの`playing`時刻を採ります。`currentTime
 hls.jsの`liveSyncPosition`との差を定期観測します。これはプレイヤーと配信端の差で、
 放送時刻からの絶対遅延ではありません。増加し続ける傾向を短い単発値で否定しません。
 
-## 録画・再生（#16・#17）
+## 録画・再生
 
 ```json
 {"request_id":"66666666-6666-4666-8666-666666666666",

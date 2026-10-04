@@ -6,7 +6,7 @@ SDRは、電波をデジタルデータとして取り込み、ソフトウェ�
 
 **2026-10-04現在、実ボードでのライブ視聴と最大5分の録画・録画再生まで確認しています。**
 既存データを使わないCompose/uv環境で、合成デモのスキャンから録画再生まで確認しています。
-確認した環境と制限は[導入・動作の検証記録](docs/issue-6-validation.md)を参照してください。
+確認した環境と制限は[検証結果と対応環境](docs/validation.md)を参照してください。
 機器を持っていない場合も、下記の合成デモで操作と映像・音声を試せます。
 
 ## 対象のハードウェアと環境
@@ -42,7 +42,7 @@ Macは視聴端末として確認したもので、macOSやWindows上のDocker D
 Chromiumでは映像・非ゼロ音声・再生時刻の進行を機械的に確認し、Safariでの両チャンネルの
 視聴・録画再生と、品質修正後の5分録画の再生はユーザーが確認しています。
 Safariの詳細バージョンと、最後の5分録画を再生したブラウザー名は記録されていません。
-測定値と確認の区別は[実機検証](docs/issue-5-validation.md)、[品質改善の記録](docs/issue-37-validation.md)、
+測定値と確認の区別は[実機検証](docs/validation-live.md)、[品質改善の記録](docs/validation-reception-quality.md)、
 [ブラウザー確認の完了記録](https://github.com/hayatky/sdr-dtv-poc/issues/23)を参照してください。
 
 ## WebUIの画面
@@ -262,6 +262,17 @@ Composeの保存先はprojectごとの`app-data` volume、uvの既定は`data/ap
 旧8秒デモは5分録画を開始できません。新しい出力先へ360秒のデモを生成し、
 `SDR_DEMO_PATH`で選んでください。単純連結や無限ループでは延長しません。
 
+## ドキュメント
+
+| 知りたいこと | 参照先 |
+|---|---|
+| 画面と操作 | [WebUIの操作ガイド](docs/webui-guide.md) |
+| 実機の準備、停止、USB切断後の対応 | [実機の導入手順](docs/live-receiver.md)、[復旧手順](docs/recovery.md) |
+| 動作を確認した環境・結果・制限 | [検証結果と対応環境](docs/validation.md) |
+| 開発環境と検査の実行 | [開発手順](docs/development.md)、[公開前の検査](docs/sensitive-data.md) |
+| 実装の仕組み | [API仕様](docs/api.md)、[受信処理](docs/receiver.md)、[WebUIの構成](docs/webui-design.md) |
+| 依存物と再配布の条件 | [依存一覧](docs/dependencies.md)、[配布内容の確認](docs/publication-audit.md)、[第三者のライセンス表示](THIRD_PARTY_NOTICES.md) |
+
 ## 開発前の確認
 
 Gitleaks 8.30.1を準備し、既存hookを確認してから本cloneのhookを有効にします。
@@ -272,8 +283,7 @@ sh scripts/check.sh
 ```
 
 [開発環境](docs/development.md)、[公開前の検査](docs/sensitive-data.md)、
-[Issue #3の検証記録](docs/issue-3-validation.md)、
-[段階2の検証・UIへの引継ぎ](docs/issue-4-backend-validation.md)を参照してください。
+[検証結果と対応環境](docs/validation.md)を参照してください。
 自動検査はローカルで実行します。記録されている検証結果はローカルでの実行結果です。
 
 研究元の実機成果、PoCの合成デモ、実機での視聴・録画は別の根拠として記録します。

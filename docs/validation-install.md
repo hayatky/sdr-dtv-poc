@@ -11,7 +11,7 @@
 
 | 対象 | 検証条件 |
 |---|---|
-| ソース | 新しい作業ディレクトリへGitの追跡ファイルだけを展開し、引継ぎ差分を適用。既存の`.env`、DB、TS、録画、仮想環境をコピーしない |
+| ソース | 新しい作業ディレクトリへGitの追跡ファイルと導入手順の修正を展開。既存の`.env`、DB、TS、録画、仮想環境をコピーしない |
 | Compose | 新しいproject `sdr-issue6-demo`、新しい`app-data` volume、localhost:18460。`env -i`でPATH/HOMEと指定したポート・Originだけを渡す |
 | build | `build --no-cache`でAPT/Python依存を取得し、合成13/14ch TSをイメージ内で生成。Ubuntu/uvの固定digestのベースイメージは既存Dockerストアから使用し得る |
 | uv | 新しい`.venv`と空の`UV_CACHE_DIR`へlockfileから取得。360秒TSを2本新規生成。新しい保存先とlocalhost:18461で起動 |
@@ -92,12 +92,12 @@ Actionsは無効でCI未実行です。今回、実機の300秒録画、Safari�
 | 機能・確認項目 | 実装と根拠・コマンド | 判定と制限 |
 |---|---|---|
 | READMEからCompose/uv、診断・UI | `777dc1f`（PR #30）、`dd60fb2`（#34）。今回の上記build/up、uv sync、smoke-webui | 成功。新規アプリ環境であり新規OSではない |
-| 実機なしデモとHLS、入力の区別 | PR #31/#34、`e1dbc0f`。今回のsmoke-webui/smoke-stage2、[段階2](issue-4-backend-validation.md) | 成功。合成、保存TS、実機の表示を区別 |
-| 2物理ch以上の実機スキャン・保存・再表示 | `77a534f`、`49e8011`、`452859d`、PR #36/#39。[段階3](issue-5-validation.md)、[品質比較](issue-37-validation.md)の実機ComposeとWebUI | 過去の成功を再利用。8物理ch・21サービス、代表21/27ch。全局A/V保証ではない |
+| 実機なしデモとHLS、入力の区別 | PR #31/#34、`e1dbc0f`。今回のsmoke-webui/smoke-stage2、[過去のバックエンド検証](validation.md#過去の記録) | 成功。合成、保存TS、実機の表示を区別 |
+| 2物理ch以上の実機スキャン・保存・再表示 | `77a534f`、`49e8011`、`452859d`、PR #36/#39。[実機検証](validation-live.md)、[品質比較](validation-reception-quality.md)の実機ComposeとWebUI | 過去の成功を再利用。8物理ch・21サービス、代表21/27ch。全局A/V保証ではない |
 | 両chの受信中A/V・切替・時間・品質 | PR #36、`28ac043`、`452859d`。同記録のChromium/WebUI・FFmpeg観測 | 過去の成功。初回待ちと処理遅れを記録、電波からの絶対遅延は未測定。USB原因は#38 |
-| 同じTSの手動/300秒録画・視聴継続 | PR #31/#36/#39。段階3の21ch、品質比較の27chとTS解析、今回の8秒API録画 | 実機27ch 300.028秒・631,963,692 bytes、partial=false。全TSの対象外PIDにCC 1件、録画端に警告 |
+| 同じTSの手動/300秒録画・視聴継続 | PR #31/#36/#39。実機検証の21ch、品質比較の27chとTS解析、今回の8秒API録画 | 実機27ch 300.028秒・631,963,692 bytes、partial=false。全TSの対象外PIDにCC 1件、録画端に警告 |
 | オリジナルdownloadと派生物で再生 | PR #31/#34/#36。既存native区間/hash・download照合、今回の両起動経路のUIとA/Vデコード | 成功。CASと変換は別派生物、オリジナルを保持 |
-| 禁止操作・二重RX防止・画面を閉じても期限 | PR #31/#34、[UI記録](issue-29-validation.md)、段階3の実機300秒と今回の共通/UI試験 | 過去の実時間300秒と今回の模擬試験を区別。今回300秒試験を重複しない |
+| 禁止操作・二重RX防止・画面を閉じても期限 | PR #31/#34、[過去のUI検証](validation.md#過去の記録)、実機での300秒録画と今回の共通/UI試験 | 過去の実時間300秒と今回の模擬試験を区別。今回300秒試験を重複しない |
 | 実機停止・復元・回収、容量・異常・再起動 | `c3cfbc1`、`7648b43`、PR #39。実機の独立読戻し/共有flock/ホスト後始末、pytestと今回のuv異常試験 | 成功記録と過去のUSB失敗/unknownを保持。未知の異常全般への保証ではない |
 | ChromiumとmacOS Safari | PR #34/#36/#39、[#23完了記録](https://github.com/hayatky/sdr-dtv-poc/issues/23#issuecomment-5979299009) | 受入れ済み。Safari詳細バージョンと最終5分録画のブラウザーは未記録。今回のChromium合成確認は別 |
 

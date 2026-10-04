@@ -62,7 +62,7 @@ cp examples/live.env.example data/live.env
 同じチャンネルに異なるゲインを指定した設定は拒否します。
 
 例えば、27chで測定して30 dBを採用する場合は、`profiles`へ次の項目を追加します。
-この値は[Issue #37の比較試験](issue-37-validation.md)で使用した条件であり、全局共通の推奨値ではありません。
+この値は[Issue #37の比較試験](validation-reception-quality.md)で使用した条件であり、全局共通の推奨値ではありません。
 
 ```json
 "ch27": {

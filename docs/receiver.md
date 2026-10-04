@@ -5,7 +5,7 @@ APIは`synthetic`、管理者が登録した`saved_ts`、および設定済み�
 以下はnative imageの基点と、実機を使わずに行える準備手順です。
 研究元の復調器を複製・再実装せず、固定ソースを再利用します。
 
-## 固定するソースと環境（#8）
+## 固定するソースと環境
 
 - 研究元: https://github.com/hayatky/hlfec-sdr-lab
 - コミット: `b1dcbf3688db79f149ff3a255639a36860ec3924`
@@ -93,8 +93,8 @@ FFTWの一時ファイルを`appdata_path()`へ作るため、読み取り専用
 Mode/GI、変調、符号率、TIは実測TMCCから決める必要があります。研究で確認した
 27chの条件を他局へ固定適用しません。nativeの`--help`の既定値を選局仕様にはしません。
 元の研究用`run-live.sh`/`run-file.sh`はsudo/Dockerを呼ぶため、Web APIから実行しません。
-将来は同じアプリimage内にnative環境を配置し、別Pythonの子プロセスとして直接起動します。
-その統合と実機入力は#13以降に残ります。
+実機用イメージではネイティブ環境を同じコンテナへ配置し、OS Pythonの子プロセスとして起動します。
+APIのuv環境とは分離しています。設定と起動方法は[実機の導入手順](live-receiver.md)を参照してください。
 
 ## 所有者・停止・復元
 
@@ -113,9 +113,9 @@ Mode/GI、変調、符号率、TIは実測TMCCから決める必要がありま�
 通常受信で全量IQを保存しません。スキャン等の診断IQを残す場合は目的・容量・期限を設定します。
 
 このnative環境の構築試験だけでは、機器への到達性、RX設定・復元、受信中HLSや録画は確認しません。
-これらの後続の実機検証は[段階3の記録](issue-5-validation.md)と[品質改善の記録](issue-37-validation.md)を参照してください。
+これらの実機検証は[実機での検証記録](validation-live.md)と[品質改善の記録](validation-reception-quality.md)を参照してください。
 
-## 段階2で追加した共通排他と終了処理（#13）
+## 共通排他と終了処理
 
 研究元の固定コミットの`src/receiver/jobs.py`は`Jobs.__init__`で
 `data/receiver/.device.lock`を`flock(LOCK_EX | LOCK_NB)`し、`Jobs.start`で同じFDを
@@ -128,7 +128,7 @@ PoCの`device_lock.py`はこのファイル名・flock・FD継承と互換の境
 `SDR_DATA_DIR/device`を使います。**この既定値は研究機器との共通排他ではありません。**
 実機統合ではホスト側で`SDR_DEVICE_LOCK_DIR`を研究CLIと同じディレクトリへ指定し、
 コンテナでも同じinodeをbind mountする必要があります。APIからその登録や権限変更はしません。
-段階2では一時ディレクトリで検証しました。段階3は実際の研究用lockと同じinodeを使い、
+合成試験では一時ディレクトリ、実機試験では実際の研究用lockと同じinodeを使い、
 実機受信中にホスト側flockがbusyになることも確認しました。
 
 - sessionとscanは同じ排他を使います。入力子ワーカーが継承FDを持つ間は、親が終了しても
@@ -143,7 +143,7 @@ PoCの`device_lock.py`はこのファイル名・flock・FD継承と互換の境
   無効化してartifactの公開も止め、RX・変換を自動再開しません。残った入力子の排他が解放される
   前の開始はdevice_busyです。別プロセスをPIDだけで判断してkillする機能はありません。
 
-段階3では実機のbaseline取得、復元書込みと独立したreadback、共通FD継承を接続しました。
+実機ではbaselineの取得、復元書込みと独立した読戻し、共通FDの継承を行います。
 録画確定時刻、子の終了コード、CLOSE結果、baseline/現在値の一致、停止後のlock再取得を
-照合しています。詳細と未確認の異常条件は[段階3の記録](issue-5-validation.md)を参照してください。
+照合しています。詳細と未確認の異常条件は[実機での検証記録](validation-live.md)を参照してください。
 切断を無条件に再接続する機能はありません。HTTPによる復旧は、実際の設定復元と読戻し照合が成功した場合だけ制限を解除します。
