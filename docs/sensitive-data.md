@@ -41,8 +41,8 @@ git diff --cached
 `pre-commit`はstagedとlint・整形検査、`pre-push`は型検査・テストを含む
 `sh scripts/check.sh`（workingとhistoryも含む）を実行します。
 push/PRのActionsでは全履歴をcheckoutして同じ検査を実行します。
-Actionsは現在無効です。今回の作業では有効化、公開設定、ブランチ保護を変更しません。
-将来の必須check設定は、管理者の明示的な承認とCIの実行確認後に扱います。
+Actionsは無効のため、現在の検査はローカルで実行します。
+CIを導入する際は上記のSecretを設定し、実際の実行結果を確認してください。
 ローカルhookはcloneごとに有効化が必要で、CIはpush後の検査です。
 hookの無効化・`--no-verify`に依存した運用をしないでください。
 

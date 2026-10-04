@@ -6,10 +6,8 @@
 
 ## 2026-10-04の実装状況
 
-現在の作業入口は全体Issue #2と、導入・公開を確認する段階4の#6です。
-[実機を含む最新の検証記録](docs/issue-5-validation.md)と[実機用の導入手順](docs/live-receiver.md)を参照してください。
-[#5への引継ぎ](docs/issue-5-handoff.md)にPR #39のレビュー後の完了範囲と残作業を記載しています。
-[段階4への引継ぎ](docs/issue-6-handoff.md)から#24〜#26の準備を進められます。
+利用手順は[README](README.md)、設計の詳細は[API仕様](docs/api.md)と[受信処理](docs/receiver.md)、
+確認した環境と品質は[検証記録の一覧](docs/issue-6-handoff.md)を参照してください。
 段階2のバックエンド（#13〜#17）とWebUI（#27〜#29）を実装しました。
 PR #34で通常の画面をAPI・HLSへ接続し、合成TSの映像・音声を機械的に確認しました。
 既定ブランチはmainです。段階1はPR #30、段階2のバックエンドはPR #31、
@@ -44,13 +42,12 @@ APIのlive入力は明示したローカル設定で有効になります。通�
 [バックエンドの検証記録](docs/issue-4-backend-validation.md)、
 [WebUIの設計と検証記録](docs/webui-design.md)、[README](README.md)を参照してください。
 研究元の自作wrapper等の配布条件は未確定で、既定imageへコピーしていません。
-Actionsは無効のまま、非公開設定とブランチ保護も変更しません。
+検査の実行方法は[開発環境](docs/development.md)に記載しています。
 
 対象ハードウェア、できること、仕組み、制限、開発の経緯は[README](README.md)に要約しました。
-[段階4の検証](docs/issue-6-validation.md)では、新しい設定・保存先でCompose/uvの合成デモを確認しました。
-[公開物の監査](docs/publication-audit.md)をまとめ、ソースと導入資料を公開候補にしています。
-新規OS・実機用の新規構築は今回未検証です。一般公開への切替と第三者の参照確認は未実施で、
-#26・#6・#2はOPENのままです。[引継ぎ](docs/issue-6-handoff.md)からレビューと管理者確認へ進みます。
+[導入検証](docs/issue-6-validation.md)では、新しい設定・保存先でCompose/uvの合成デモを確認しました。
+新規OS・実機用の新規構築は、この導入試験の対象外です。
+同梱する資産と別途取得が必要な依存物は[配布内容と依存物の確認](docs/publication-audit.md)にまとめています。
 今後の課題はUSB切断の原因調査（PoC #38）、受信処理の一部をボード内へ移す研究
 （[研究元#74](https://github.com/hayatky/hlfec-sdr-lab/issues/74)）、CATV経由のBS受信の実装です。
 後二者は現行の地上波PoCとは別の拡張で、実装・実機検証済みとは扱いません。
@@ -100,7 +97,7 @@ PR #72は#38の完了と#39への引継ぎ文書、PR #73は全階層実装と�
 
 **研究元の成果と、このWebUIで確認した成果は区別します。** 初期引継ぎ時にはWebUIでの
 スキャン・2物理chの選局・受信中HLS・同時5分録画は未検証でしたが、現在は#5で完了しています。
-新しい設定・保存先での合成デモ導入と公開候補の検査は#6で進め、一般公開と参照確認が残っています。
+Compose/uvでの合成デモの導入は、新しい設定・保存先を使って確認しています。
 
 ### 全階層の最終成功試行の基準
 
@@ -310,7 +307,7 @@ Python用.gitignoreに加え、`.env`/`.env.*`（`.env.example`は例外）、`d
 - [全階層復元設計](https://github.com/hayatky/hlfec-sdr-lab/blob/b1dcbf3688db79f149ff3a255639a36860ec3924/docs/isdb-t-all-layer-reconstruction.md)
 - [最終630秒RX・A/V根拠](https://github.com/hayatky/hlfec-sdr-lab/blob/b1dcbf3688db79f149ff3a255639a36860ec3924/experiments/EXP-20261001-005-all-layer-rx-after-reconnect.md)
 
-**次の作業は[段階4への引継ぎ](docs/issue-6-handoff.md)を参照してください。**
+**確認した環境と制限は[検証記録の一覧](docs/issue-6-handoff.md)を参照してください。**
 [段階3の検証記録](docs/issue-5-validation.md)と[#5の成果](docs/issue-5-handoff.md)を再利用します。
 
 ## 2026-10-04の追加: スキャン対象と局名取得の経緯

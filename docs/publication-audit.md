@@ -1,56 +1,37 @@
-# ソースと導入資料の公開候補の確認
+# 配布内容と依存物の確認
 
-2026-10-04（日本時間）、Issue #25/#26のために確認しました。
-基点は`c41af0eee7ced57c43f6e391fcf0c7c7837eadf4`、公開候補は本書を含むPRのheadです。
-確定コミットID、PR作成後の検査、残る操作はPR本文にも記録します。
-公開設定はprivateのままで、Release作成・コンテナpush・Actionsや保護設定の変更は行いません。
+このリポジトリはソースとローカルでのビルド・導入手順を提供します。
+実機を利用するために別途取得するものと、生成したイメージを再配布する際の制限をまとめます。
 
-## 公開候補と除外するもの
+## 同梱するものと、別途用意するもの
 
-| 対象 | 判断 |
+| 対象 | 提供方法と利用条件 |
 |---|---|
-| 本リポジトリの自作ソース、設定例、導入・検証資料、同梱フロント資産、合成画面例 | 今回の公開候補。Git履歴・既存ブランチとGitHub本文も公開切替の影響範囲として確認 |
-| 合成デモの生成スクリプト | 公開候補。FFmpegのtestsrc2と正弦波を使い、放送入力を読まない。生成TSはGitへ追加しない |
-| 研究元wrapperと変換スクリプト | 再配布条件未確定。固定Gitオブジェクトから権限のある利用者が別途取得。ソース・既定デモimageに同梱しない |
-| 外部CAS、受信FW/FPGA、カード関連データ、放送IQ/TS・派生映像音声 | Git・添付・配布候補から除外。CASのライセンス確認をカード関連の独自開発許可へ拡張しない |
-| wheel、実行物、デモ用/実機用コンテナ | **今回配布しない**。GPL/LGPL等の対応ソース、Ubuntuパッチ、全構成要素の表示・ビルド情報を配布一式として準備していない |
-| タグ、Release、添付、registry | 新規作成・配布を予定しない。既存GitHub Packagesの一覧は権限不足で未確認。そこに対象がないとは主張しない |
+| 自作ソース・設定例・導入資料 | Gitで提供。自作コードはGPL-3.0-or-later |
+| Vue/hls.jsのproduction資産 | 固定したバージョンを無改変で同梱。元の著作権表示・LICENSEと取得元/hashのmanifestを保持 |
+| 合成デモ | 生成スクリプトを同梱。FFmpegのtestsrc2と正弦波からTSをローカル生成し、放送入力は使わない |
+| 画面例 | 架空の局名と合成表示。放送の番組画像は含まない |
+| 研究元wrapperと変換スクリプト | 同梱しない。再配布条件は未確定で、権限のある利用者が固定Gitオブジェクトから別途取得 |
+| 外部CAS | 同梱しない。実機で必要な場合に固定した既存OSSを無改変で別途ビルド |
+| FW/FPGA、カード関連データ、放送IQ/TS・映像音声 | 同梱しない。受信したデータと再生用派生物は利用者のローカル保存先で管理 |
+| wheel、第三者実行物、デモ用/実機用コンテナ | 配布しない。ソースと手順からローカルで構築 |
 
-## GitとGitHub本文・画像の確認
+依存物のライセンスは自作コードのGPL宣言に置き換わりません。
+イメージや実行物を再配布する場合は、GPL/LGPL等で必要となる対応ソース、Ubuntuパッチ、
+各構成要素の通知とビルド情報を別途揃える必要があります。本リポジトリはその配布一式を提供していません。
 
-- 監査開始時の到達可能な41コミット・追跡99ファイルとその変更、リモート5ブランチを列挙しました。
-  リモート先端は全て検査したローカル履歴へ含まれ、タグは0件でした。
-  履歴を含むファイル名・媒体拡張子を確認し、画像は現在と同じJPEG 4件でした。
-- `.env.example`、`examples/live.env.example`、`examples/live.json`はplaceholderとlocalhostを使い、
-  個人の実接続先やcredentialを含まないことを内容確認しました。READMEと引継ぎの追加差分も確認対象です。
-- author/committerのメールは全てGitHub noreply、表示名は所有者の公開アカウントまたはGitHubでした。
-  正当な著作権表示や公開アカウントを匿名化のために削除していません。
-- `docs/images`の4画像を目視し、架空の局名・合成表示であることを確認しました。
-  JPEGはJFIFとICC profileだけでEXIF/XMP/コメントなし。過去の画像blobも現在とSHA-256一致です。
-- `gh api --paginate`で全39 Issue/PR（PR 9件）、issueコメント31件、reviewコメント20件、
-  review本文16件を取得しました。本文・タイトル106件の機密検査と、URL・添付記法・
-  個人ホーム・私用ネットワーク表記等の検索、該当内容の確認を行いました。
-  添付URLはなく、画像記法はレビューの優先度badgeだけでした。
-- Release 0、Actions実行0、Actions artifact 0、Pages/Wikiなしを確認しました。
-  既存PackagesはAPIが403（`read:packages`不足）となり未確認です。権限や設定を変更していません。
-- 過去の編集履歴・削除済み添付は通常の本文APIから取得しておらず、監査したとは記載しません。
-  PR作成後は今回の本文も追加で確認します。管理者の公開操作直前にはその後の変更がないか照合が必要です。
+## 内容確認の対象と結果
 
-コマンドは`git ls-files`、`git log --all`、`git rev-list --all`、`git diff`、
-`gh api --paginate 'repos/hayatky/sdr-dtv-poc/issues?state=all&per_page=100'`、`.../issues/comments`、
-`.../pulls/comments`と各PRの`reviews`、`.../releases`、`.../actions/artifacts`等です。
-API取得JSON全体をGitleaksへ渡した最初の検査では、GitHub APIの`/users/`メタデータを
-個人ホームパスとして検出しました。ルールは緩めず、公開対象のタイトル・本文を抽出し直して
-106件を検査し、成功しました。ホーム名の補助検索でも一致はありませんでした。
-これは画像や未登録の識別子まで自動検出できるという意味ではありません。
+2026-10-04、`c41af0eee7ced57c43f6e391fcf0c7c7837eadf4`の実装と依存物を確認しました。
+導入検証時の文書は`ea3badf`に記録しています。
 
-`docs/sensitive-data.md`に従うworking/history検査は`sh scripts/check.sh`で成功しました。
-コミット直前のindex全体への`uv run --locked python scripts/check-sensitive.py staged`も成功しました。
-最終コミットのhookでも同じindex検査を行います。
-検出値・生ログ・API取得JSON・イメージtar・テスト用DBはGit・PRへ追加しません。
-全ファイルの目視だけで漏洩を網羅したという主張ではなく、機械検査と対象別の内容確認を組み合わせた結果です。
+- 設定例はplaceholderとlocalhostを使い、利用者が自分の環境に合わせて指定する構成です。
+- `docs/images`のJPEG 4件を目視し、架空の局名と合成表示であることを確認しました。
+  metadataはJFIFとICC profileで、EXIF/XMP/コメントはありませんでした。
+- `docs/sensitive-data.md`のworking/history/staged検査は成功しました。
+  自動検査は全ての個人情報や素材の権利を判断できないため、画像・設定例・同梱物の内容確認も行っています。
 
-## build contextとローカルイメージ
+## ビルド入力とローカルイメージの確認
 
 `.dockerignore`は全除外から必要なソース・静的資産・lockfile・README・license・
 生成スクリプトだけを許可します。`.git`、`.env`、data、artifacts、画像例や研究元の取得物は含めません。
@@ -64,8 +45,8 @@ image configのユーザーは10001:10001、Composeは非特権・read-only・lo
 
 検査したイメージのconfig digestは
 `sha256:dad9ab6fe49600ebc054deacc5cf23c66a39f91fbfdc1c763fc0f96fd7d9f454`です。
-これは基点と引継ぎ時のREADMEでビルドしたローカル検証物です。後続の文書だけの変更を
-含むイメージを配布候補とはせず、実行コード・Dockerfile・lockfileが同じ範囲の動作根拠に使います。
+これは`c41af0e`の実行コード・Dockerfile・lockfileと、導入検証時のREADMEでビルドしたローカル検証物です。
+配布用イメージではなく、同じ実装に対する内容確認と動作確認の記録です。
 OS package一覧は`/opt/packages.lock`、通知は`/usr/share/doc/*/copyright`に残ります。
 この内容検査の成功を、イメージ配布に必要な対応ソース一式の準備完了とは扱いません。
 
@@ -77,7 +58,7 @@ OS package一覧は`/opt/packages.lock`、通知は`/usr/share/doc/*/copyright`�
 |---|---|---|
 | Python 28依存 | distribution metadata、実バージョン、同梱licenseを一覧と照合。pathspecはLICENSE本文でMPL-2.0を確認。新しいuv環境でもlockfileどおり取得 | 依存を改変せず、wheel内の表示を保持。第三者wheelそのものをReleaseへ追加しない |
 | Vue 3.5.22 / hls.js 1.6.13 | 固定npm tarballとApache-2.0全文を再取得し、manifestの5ファイル全てでSHA-256と実ファイルの完全一致。MIT/Apache-2.0表示を保持 | 同梱するproduction資産とlicenseだけ。Node/npm・ブラウザー実行物は配布しない |
-| Hatchling 1.29.0、uv 0.12.18、Gitleaks 8.30.1 | Hatchlingは新規buildで取得。uvは固定digestのimageと既存ホスト、Gitleaksは既存の検査用実行物を使用 | ビルド・検査の補助。既存ホストのツールを配布候補へ追加しない |
+| Hatchling 1.29.0、uv 0.12.18、Gitleaks 8.30.1 | Hatchlingは新規buildで取得。uvは固定digestのimageと既存ホスト、Gitleaksは既存の検査用実行物を使用 | ビルド・検査の補助。ツール自体は同梱しない |
 | FFmpeg | 新規デモimage内で6.1.1、APT `7:6.1.1-3ubuntu5`、`--enable-gpl`とlibx264、通知ファイルを確認 | Ubuntuの対応ソースとパッチ、全依存の条件を揃えるまでイメージ/実行物配布は除外 |
 | GNU Radioと受信拡張 | 既存固定imageを機器・ネットワークなしで起動しimport確認。GNU Radio `3.10.9.2-1.1ubuntu2`、GSL `2.7.1+dfsg-6ubuntu2`、pybind11 `2.11.1-2`、make `4.3-4.1build2`、通知を照合 | 今回はnative imageを再構築していない。既存の固定ビルド手順と過去の検証を参照 |
 | 研究元とgr-isdbt | 固定Gitオブジェクトのlive 12ファイル、基点のbuild入力4ファイルのhash一致。gr-isdbtの2固定コミットのLICENSE/COPYINGはGPL-3.0-or-later | gr-isdbtの条件を研究元独自wrapper全体へ広げない。変換内容・hash・ビルドはreceiver.mdと生成manifestに対応 |
@@ -87,19 +68,3 @@ OS package一覧は`/opt/packages.lock`、通知は`/usr/share/doc/*/copyright`�
 固定ソースの取得・変換・ビルド方法は[receiver.md](receiver.md)、
 実機wrapper/CASの別途取得とmountは[live-receiver.md](live-receiver.md)にあります。
 上流URLだけを対応ソースの提供一式の代わりにはしません。
-
-## 残る判断と操作
-
-1. PRの最終headと監査範囲をレビューし、mainへ統合する。統合後のコミットIDを記録し、
-   候補からソースや設定が変わった場合は影響する検証・機密検査を追加する。
-2. 管理者が、ソース・導入資料・同梱資産・現在のGit履歴/ブランチ・Issue/PRを公開対象とし、
-   Release、実行物、コンテナ配布を含めないことを確認する。
-3. 確認後に限り、`hayatky/sdr-dtv-poc`のvisibilityをprivateからpublicへ変更する。
-   想定する操作は`gh repo edit hayatky/sdr-dtv-poc --visibility public --accept-visibility-change-consequences`。
-   **この操作は未実施です。** 既存Packagesは今回の配布・設定変更の対象にしません。
-4. 認証なしでリポジトリ・固定コミットのREADME・導入資料・ソースを参照できることを確認し、
-   公開URL・対象コミット・結果を#26へ記録する。実機用研究元の取得権限は別条件として残す。
-5. 上記の公開と参照確認が終わるまでは#26・#6・#2を閉じない。Actionsは無効のままとする。
-
-この管理者確認は#26と今回の依頼で明示された公開前の確認です。
-PR作成だけでは一般公開やPoC全体の完成にはなりません。

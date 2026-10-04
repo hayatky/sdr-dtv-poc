@@ -5,10 +5,8 @@ SDRは、電波をデジタルデータとして取り込み、ソフトウェ�
 このプロジェクトでは、受信ボードとUbuntu PCを組み合わせてテレビ受信を試します。
 
 **2026-10-04現在、実ボードでのライブ視聴と最大5分の録画・録画再生まで確認しています。**
-実装と実機検証の[Issue #5](https://github.com/hayatky/sdr-dtv-poc/issues/5)は完了し、
-[Issue #6](https://github.com/hayatky/sdr-dtv-poc/issues/6)では、既存データを使わないCompose/uvの導入と
-合成デモの操作、ソースと導入資料の公開前検査まで進めました。一般公開への切替は管理者の確認待ちです。
-[今回の検証範囲](docs/issue-6-validation.md)と[公開候補](docs/publication-audit.md)を参照してください。
+既存データを使わないCompose/uv環境で、合成デモのスキャンから録画再生まで確認しています。
+確認した環境と制限は[導入・動作の検証記録](docs/issue-6-validation.md)を参照してください。
 機器を持っていない場合も、下記の合成デモで操作と映像・音声を試せます。
 
 ## 対象のハードウェアと環境
@@ -23,7 +21,7 @@ SDRは、電波をデジタルデータとして取り込み、ソフトウェ�
 
 同型という名称だけで、別の互換ボードやFW、純正ADALM-PLUTOでの動作を保証しません。
 検証ではボードのFW・FPGA・永続設定を変更していません。受信処理は主にUbuntu側で行います。
-公開する検証記録にはFWの詳細バージョンがなく、対応FWの一覧を提示できる段階ではありません。
+検証記録にはFWの詳細バージョンがなく、対応FWの一覧を提示できる段階ではありません。
 別の個体ではIIODへ接続できること、必要なRX設定を読めること、復元を照合できることを
 実機の手順で確認してください。動作させるために純正機のFWを書き込む手順は含めません。
 Macは視聴端末として確認したもので、macOSやWindows上のDocker Desktopを受信ホストにする構成は未検証です。
@@ -102,26 +100,22 @@ Vueとhls.jsは同梱しているため、Node.js/npmや実行時CDNは不要で
 
 ## 今後の課題と予定
 
-1. **導入手順と公開物の最終確認**：[#6](https://github.com/hayatky/sdr-dtv-poc/issues/6)で
-   導入と公開候補の検査結果をレビューし、管理者の確認後にソースと導入資料を公開します。
-   [作業の引継ぎ](docs/issue-6-handoff.md)に#24〜#26の達成範囲と残る操作をまとめています。
-2. **USB切断の原因調査**：[#38](https://github.com/hayatky/sdr-dtv-poc/issues/38)で
+1. **USB切断の原因調査**：[#38](https://github.com/hayatky/sdr-dtv-poc/issues/38)で
    接続条件と切断原因を切り分け、長時間受信の信頼性を評価します。
-3. **受信処理の一部をボード内へ移す研究**：研究元の[#74](https://github.com/hayatky/hlfec-sdr-lab/issues/74)では、
+2. **受信処理の一部をボード内へ移す研究**：研究元の[#74](https://github.com/hayatky/hlfec-sdr-lab/issues/74)では、
    同期・FFT・等化・判定をFPGAへ移し、ボード内のArm/DDRでデータを保持してUSB転送量を減らす構成を検討します。
    Flashを書き換えずRAMから一時起動する計画で、対象ボードでの動作・復帰や性能はまだ未実証です。
    現行PoCとは別の研究であり、USB切断の解決済み対策ではありません。
-4. **CATV経由のBS受信**：研究元のQAM受信の成果を再利用し、このWebUIからBSを視聴・録画できるようにする今後の実装課題です。
+3. **CATV経由のBS受信**：研究元のQAM受信の成果を再利用し、このWebUIからBSを視聴・録画できるようにする今後の実装課題です。
    現在のPoCは未対応で、衛星アンテナからの直接受信とは異なります。必要な受信・サービス分離・再生経路を接続し、
    実機で検証します。初期の地上波PoCの完成条件には追加しません。
 
-公開後の拡張の順序・時期は未定です。全体の進捗は[Issue #2](https://github.com/hayatky/sdr-dtv-poc/issues/2)で管理します。
+拡張の順序・時期は未定です。全体の進捗は[Issue #2](https://github.com/hayatky/sdr-dtv-poc/issues/2)で管理します。
 
 ## Docker Composeで合成デモを起動
 
 対象はUbuntu 24.04 / x86_64です。Docker EngineとComposeを用意して実行します。
 ソースを新しいディレクトリへ取得し、そのディレクトリで以降のコマンドを実行します。
-一般公開前はリポジトリへのアクセス権が必要です。
 
 ```sh
 git clone https://github.com/hayatky/sdr-dtv-poc.git
@@ -270,7 +264,7 @@ sh scripts/check.sh
 [開発環境](docs/development.md)、[公開前の検査](docs/sensitive-data.md)、
 [Issue #3の検証記録](docs/issue-3-validation.md)、
 [段階2の検証・UIへの引継ぎ](docs/issue-4-backend-validation.md)を参照してください。
-GitHub Actionsは無効のままです。ローカルの検証成功をCI実行成功とは記載しません。
+自動検査はローカルで実行します。記録されている検証結果はローカルでの実行結果です。
 
 研究元の実機成果、PoCの合成デモ、実機での視聴・録画は別の根拠として記録します。
 macOS/WindowsのDocker Desktopで受信バックエンドを動かすことは未検証です。
@@ -287,6 +281,6 @@ version 3 or (at your option) any later version (`GPL-3.0-or-later`). See
 
 Third-party components retain their own copyright notices and licenses. See
 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md) and the [dependency inventory](docs/dependencies.md).
-This change distributes source and local build instructions, not container images
+This repository provides source and local build instructions, not container images
 or third-party binaries. Before binary/image distribution, provide corresponding
 source and build instructions as required by each included component's license.

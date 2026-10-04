@@ -87,7 +87,7 @@ CASはlibaribb25 `dc1d96a90ea554d8997b238fd6712eccf553cdb3`の無改変ビルド
 `bin/arib-b25-stream-test`と`lib/libaribb25.so`等が必要です。オプションは
 `-m 0 -p 0 -s 0 -v 0`で、EMM処理や詳細出力を使いません。カードの改造・複製・
 鍵抽出やCAS実装の変更は行いません。CAS終了コードだけで復号成功とはせず、
-HLSの生成と実際のA/Vで確認します。このPRはCASやnative imageを配布しません。
+HLSの生成と実際のA/Vで確認します。CASやnative imageは同梱していません。
 
 ## ホストの一時準備と起動
 
