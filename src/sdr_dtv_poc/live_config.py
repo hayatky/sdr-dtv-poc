@@ -3,7 +3,7 @@
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 
 from .live_sources import verify
@@ -80,6 +80,17 @@ class LiveConfig:
     profiles: dict[str, LiveProfile]
     config_path: Path
 
+    def gain_for_channel(self, channel: int, fallback: int = 20) -> int:
+        gains = {p.gain_db for p in self.profiles.values() if p.channel == channel}
+        if len(gains) > 1:
+            raise ValueError("conflicting RX gains for the same physical channel")
+        return next(iter(gains), fallback)
+
+    def receive_profile(self, profile: LiveProfile) -> LiveProfile:
+        # Only the receiver gain is an administrator override. Keep the measured
+        # modulation, layer layout and timing from discovery/the saved service.
+        return replace(profile, gain_db=self.gain_for_channel(profile.channel, profile.gain_db))
+
     @classmethod
     def read(cls, path: Path) -> "LiveConfig":
         data = json.loads(path.read_text())
@@ -89,4 +100,7 @@ class LiveConfig:
         if len(profiles) > 40:
             raise ValueError("invalid live profiles")
         verify(Path(data["research_root"]))
-        return cls(Path(data["research_root"]), Path(data["native_python"]), profiles, path)
+        config = cls(Path(data["research_root"]), Path(data["native_python"]), profiles, path)
+        for profile in profiles.values():
+            config.gain_for_channel(profile.channel)
+        return config

@@ -145,6 +145,7 @@ def analyze(
             return {"state": "unstable_tmcc", "attempts": attempts}
         try:
             profile = profile_from_tmcc(channel, candidate["mode"], candidate["gi"], frames[0])
+            profile = config.receive_profile(profile)
         except (KeyError, TypeError, ValueError):
             return {"state": "unsupported_tmcc", "attempts": attempts}
         return {
@@ -221,7 +222,7 @@ def run(
         "frequency_hz": 473_142_857 + (channel - 13) * 6_000_000,
         "sample_rate_hz": 6_400_000,
         "rf_bandwidth_hz": 6_000_000,
-        "gain_db": 20,
+        "gain_db": config.gain_for_channel(channel),
         "samples": SAMPLES,
         "readbuf_samples": 1_000_000,
         "frequency_rounding_hz": 4,

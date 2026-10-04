@@ -198,6 +198,9 @@ class Manager:
             raise Unavailable("live_not_configured")
         if profile is None and source_id not in self.settings.live.profiles:
             raise Unavailable("source_not_registered")
+        profile = self.settings.live.receive_profile(
+            profile if profile is not None else self.settings.live.profiles[source_id]
+        )
         return Source(
             self.settings.live.config_path, 18_000_000, live_id=source_id, live_profile=profile
         )

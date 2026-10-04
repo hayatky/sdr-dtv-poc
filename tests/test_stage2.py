@@ -427,6 +427,39 @@ def test_scan_preserves_identity_unknown_and_cancel(
         ScanStart(request_id=uuid4(), channels=[13, 13])
 
 
+def test_media_keeps_full_segment_input_during_converter_startup(settings: Settings) -> None:
+    async def run() -> None:
+        manager = Manager(settings)
+        released = asyncio.Event()
+        written: list[bytes] = []
+        status = MediaStatus()
+        media = Media(settings, manager.store, uuid4(), 1, status, lambda: None)
+        process = Mock(returncode=None)
+        process.stdin.write.side_effect = written.append
+        process.stdin.drain = AsyncMock(side_effect=released.wait)
+        media.process = process
+        feeder = asyncio.create_task(media.feed())
+        # About 0.37 seconds at the measured 2.1 MB/s full-segment rate.
+        # The converter may wait for stream information before consuming more.
+        chunks = [PACKET[:4] + i.to_bytes(4, "big") + PACKET[8:] + PACKET * 6 for i in range(600)]
+        try:
+            media.offer(chunks[0])
+            await asyncio.sleep(0)
+            for chunk in chunks[1:]:
+                media.offer(chunk)
+            assert status.state != "failed"
+            released.set()
+            await media.queue.put(None)
+            await asyncio.wait_for(feeder, 1)
+            assert written == chunks
+        finally:
+            feeder.cancel()
+            await asyncio.gather(feeder, return_exceptions=True)
+            await manager.close()
+
+    asyncio.run(run())
+
+
 def test_media_queue_cas_and_retention(settings: Settings) -> None:
     async def run() -> None:
         m = Manager(settings)
