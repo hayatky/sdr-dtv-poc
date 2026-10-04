@@ -187,10 +187,8 @@ def scan_inputs(context: Any, origin: str) -> dict[str, bool]:
         synthetic = page.locator('input[name="diag-input"][value="synthetic"]')
         start = page.get_by_role("button", name="スキャンを開始する", exact=True)
         expect(live).to_be_checked()
-        expect(page.locator('input[name="scan-preset"][value="all"]')).to_have_count(0)
-        expect(
-            page.get_by_text("21ch、27ch（2チャンネル）を調べます。", exact=True)
-        ).to_be_visible()
+        expect(page.locator('input[name="scan-preset"][value="all"]')).to_be_checked()
+        expect(page.get_by_text("13〜52ch（40チャンネル）を調べます。", exact=True)).to_be_visible()
         assert not posts
         synthetic.check()
         page.locator('input[name="scan-preset"][value="all"]').check()
@@ -201,7 +199,7 @@ def scan_inputs(context: Any, origin: str) -> dict[str, bool]:
         live.check()
         start.click()
         expect(start).to_be_enabled()
-        assert posts[-1]["input_kind"] == "live" and posts[-1]["channels"] == [21, 27]
+        assert posts[-1]["input_kind"] == "live" and posts[-1]["channels"] == list(range(13, 53))
         expect(
             page.get_by_text("このスキャンの入力元：実機ライブ（SDRボードで受信）")
         ).to_be_visible()

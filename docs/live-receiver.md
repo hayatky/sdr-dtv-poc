@@ -10,13 +10,13 @@ macOS、Windows、別ボード/FWへの互換性は未確認です。普段の�
 研究元の基点`b1dcbf3688db79f149ff3a255639a36860ec3924`で固定したnative imageを
 [receiver.md](receiver.md)の手順でビルドします。実機用Pythonソースは
 [研究元PR #76](https://github.com/hayatky/hlfec-sdr-lab/pull/76)の
-`daf2c700df652e97e6e4a1e52f36d8b5361f9d6e`を使います。
-`live_sources.py`の11ファイルのSHA-256を起動時に照合し、相違があれば開始しません。
+`729400f8e2c42ad30f1b5496a22db457d19c839b`を使います。
+`live_sources.py`の12ファイルのSHA-256を起動時に照合し、相違があれば開始しません。
 研究元のwrapperの再配布条件は未確定なので、Gitや配布imageへコピーせず、
 利用権限のある人が別途取得して読み取り専用でbind mountします。
 
 経路はIIOD → ci16_le 6.4 MS/s → 既存80/63変換 → cf32_le 512000000/63 S/s →
-既存B階層復調 → 188 byte TSです。独立した復調器を複製しません。
+既存の階層別復調 → 188 byte TSです。独立した復調器を複製しません。
 B階層TSはA/B全階層の元の多重TSではありません。受信TSを保存し、録画は同じ
 TSのbyte列を分岐します。HLSと録画再生だけに外部CASとFFmpegを使います。
 
@@ -37,7 +37,7 @@ APIからsudo・Docker socketを操作しません。
 
 ```sh
 # 別途取得した研究checkoutへ固定コミットを取得する（checkoutは変更しない）
-git -C /path/to/research fetch origin daf2c700df652e97e6e4a1e52f36d8b5361f9d6e
+git -C /path/to/research fetch origin 729400f8e2c42ad30f1b5496a22db457d19c839b
 uv run --locked python scripts/prepare-live.py /path/to/research data/live-source
 mkdir -p data/live-config data/live-app data/live-host
 chmod 700 data/live-config data/live-app data/live-host
@@ -47,8 +47,8 @@ cp examples/live.env.example data/live.env
 
 `data/live.env`のUID/GIDと各パスを実環境へ設定します。`SDR_RESEARCH_DEVICE_DIR`は
 研究CLIが実際に使うdata/receiverと同じディレクトリです。別のlock用ディレクトリを
-新設してはいけません。configの21ch/27chは今回の実測値であり、別地域へそのまま
-適用しません。登録外のチャンネルは未受信のまま拒否します。
+新設してはいけません。configの`profiles`は任意の短縮プリセットです。空でも全範囲を
+探索でき、チャンネルごとに実測した受信設定を局一覧と一緒に保存します。
 
 CASはlibaribb25 `dc1d96a90ea554d8997b238fd6712eccf553cdb3`の無改変ビルドを使います。
 上流 https://github.com/tsukumijima/libaribb25 のソース、ライセンス通知、ビルド記録を
@@ -88,10 +88,18 @@ docker compose --env-file data/live.env -f compose.live.yaml up -d --build
 専用ホスト準備は約57分で終了へ進み、RXがあれば共有lockの解放を最大650秒待ちます。
 解放できない場合はrouteを残してエラーとし、復旧のための接続を壊しません。
 
-「接続確認・スキャンの入力元」で「実機ライブ」を選び、「実機の登録済みチャンネル」を
-スキャンします。実機用構成ではこの入力元を初期選択しますが、受信開始はボタン操作時だけです。
-対象は表示された登録済みチャンネルに限り、未登録チャンネルを含むUHF全範囲の自動探索には
-現在対応していません。接続診断での未確認表示は、その項目を診断では測定しない意味です。
+「接続確認・スキャンの入力元」で「実機ライブ」を選び、UHF全範囲（13〜52ch）、
+低い側、高い側、または指定範囲をスキャンします。実機構成の初期選択は全範囲です。
+受信開始はボタン操作時だけで、全体は最長20分、各チャンネルも有限期限で止まります。
+接続診断での未確認表示は、その項目を診断では測定しない意味です。
+
+各チャンネルで0.9秒の診断IQを取得し、既存のCP探索とTMCC復号からMode・GI・階層構成・
+符号率・時間インターリーブを調べます。複数のTMCCフレームが一致した設定でTSを取得し、
+映像と音声を持つサービスを保存します。B階層64QAMとA階層13セグメントの
+QPSK/16QAM/64QAMに対応し、それ以外の階層構成や不安定なTMCCは結果に表示します。
+TMCCの検出だけでは視聴可能な局と扱いません。TSの復調失敗はチャンネル単位で表示し、
+RX復元を確認して次へ進みます。取得や復元の異常では全体を停止します。
+診断IQ・変換後IQ・TSはGit外に残るため、全範囲のスキャンに数GBの空きを確保してください。
 保存された局を選んで
 視聴し、最大5分の録画を開始できます。局名をSIから取得できないときは不明と表示し、
 過去の検出と現在の受信を分けます。録画中は選局・スキャン・二重録画を拒否します。

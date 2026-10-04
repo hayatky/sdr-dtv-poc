@@ -221,6 +221,10 @@ class Media:
             return
         if data is None or self.status.state == "failed":
             return
+        # A growing recording playlist looks like live HLS to native players,
+        # which can start near its end. Publish VOD only once its end is known.
+        if self.vod and b"#EXT-X-ENDLIST" not in data.splitlines():
+            return
         members = sorted(p.name for p in paths if NAME.fullmatch(p.name))
         references = [
             line for line in data.decode("utf-8").splitlines() if line and not line.startswith("#")

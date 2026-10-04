@@ -1,8 +1,5 @@
 {
   "research_root": "/research",
   "native_python": "/usr/bin/python3",
-  "profiles": {
-    "ch21": {"channel": 21, "mode": 3, "gi": 0.125, "rate_b": 2, "interleave_a": 4, "interleave_b": 2, "gain_db": 20},
-    "ch27": {"channel": 27, "mode": 3, "gi": 0.125, "rate_b": 2, "interleave_a": 4, "interleave_b": 2, "gain_db": 20}
-  }
+  "profiles": {}
 }

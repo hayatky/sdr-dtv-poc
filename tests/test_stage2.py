@@ -450,6 +450,23 @@ def test_media_queue_cas_and_retention(settings: Settings) -> None:
     asyncio.run(run())
 
 
+def test_recording_playlist_waits_for_its_end(settings: Settings) -> None:
+    m = Manager(settings)
+    status = MediaStatus()
+    media = Media(settings, m.store, uuid4(), 1, status, lambda: None, vod=True)
+    media.directory.mkdir(parents=True)
+    (media.directory / "segment_000000.ts").write_bytes(PACKET)
+    playlist = media.directory / "index.m3u8"
+    data = "#EXTM3U\n#EXTINF:2,\nsegment_000000.ts\n"
+    playlist.write_text(data)
+    media.publish()
+    assert status.url is None and media.artifact is None
+    playlist.write_text(data + "#EXT-X-ENDLIST\n")
+    media.publish()
+    assert status.state == "ready" and status.url
+    m.store.close()
+
+
 def test_hls_snapshot_and_restart_revocation(settings: Settings) -> None:
     async def run() -> None:
         m = Manager(settings, adapter_factory=lambda _: Paced())

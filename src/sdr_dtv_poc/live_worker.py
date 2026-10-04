@@ -18,10 +18,11 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .live_config import LiveConfig
+from .live_config import LiveConfig, LiveProfile
 
 
 def save(path: Path, data: dict[str, Any]) -> None:
@@ -30,12 +31,57 @@ def save(path: Path, data: dict[str, Any]) -> None:
     temp.replace(path)
 
 
+def force_stop_group(mark_recovery: Callable[[], None]) -> None:
+    try:
+        mark_recovery()
+    finally:
+        os.killpg(os.getpgrp(), signal.SIGKILL)
+
+
+def verify_restoration(worker: Any, job: dict[str, Any]) -> bool:
+    if job["restoration"]["state"] == "restored":
+        with socket.create_connection((worker.rx.HOST, 30431), timeout=2) as sock:
+            sock.settimeout(2)
+            stream = sock.makefile("rb")
+            try:
+                _, xml = worker.rx.probe.fetch_payload(
+                    sock, stream, "PRINT", worker.rx.probe.MAX_XML_BYTES
+                )
+            finally:
+                stream.close()
+            phy, device, _ = worker.rx.validate_context(xml)
+            session = worker.rx.Session(sock, phy, device, [])
+            try:
+                readback = {a: session.read(d, c, a) for d, c, a, _ in worker.rx.SETTINGS}
+            finally:
+                session.stream.close()
+        job["independent_readback"] = readback
+        if not all(
+            worker.matches(a, readback[a], v)
+            for a, v in job["baseline"].items()
+            if a != "hardwaregain" or job["baseline"]["gain_control_mode"] == "manual"
+        ):
+            job["restoration"]["state"] = "failed"
+            raise ValueError("independent_restore_mismatch")
+    return job["restoration"]["state"] == "restored" and "independent_readback" in job
+
+
 def run(
-    config_path: Path, source_id: str, directory: Path, lock_root: Path, lock_fd: int, seconds: int
+    config_path: Path,
+    source_id: str,
+    directory: Path,
+    lock_root: Path,
+    lock_fd: int,
+    seconds: int,
+    profile_path: Path | None = None,
 ) -> int:
     os.umask(0o077)
     config = LiveConfig.read(config_path)
-    profile = config.profiles[source_id]
+    profile = (
+        LiveProfile(**json.loads(profile_path.read_text()))
+        if profile_path
+        else config.profiles[source_id]
+    )
     lock_stat = os.stat(lock_root / ".device.lock")
     fd_stat = os.fstat(lock_fd)
     if (lock_stat.st_dev, lock_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
@@ -84,10 +130,7 @@ def run(
             pass
 
     def hard_stop(*_: object) -> None:
-        try:
-            block()
-        finally:
-            os.killpg(os.getpgrp(), signal.SIGKILL)
+        force_stop_group(block)
 
     def stop(*_: object) -> None:
         stopped.set()
@@ -105,7 +148,7 @@ def run(
     environment.pop("APPDATA", None)
     # Native Python keeps its own import path; API's virtualenv is independent.
     environment["PYTHONPATH"] = os.environ.get("SDR_NATIVE_PYTHONPATH", "/opt/wideband-build")
-    ts_path = directory / "demod/layer_b.ts"
+    ts_path = directory / f"demod/layer_{profile.layer}.ts"
     output_fd: int | None = None
     logs = []
     relay: threading.Thread | None = None
@@ -279,11 +322,20 @@ def run(
                 "--stage",
                 "ts",
                 "--layers",
-                "b",
+                profile.layer,
+                "--modulation-a",
+                str(profile.modulation_a),
+                "--rate-a",
+                str(profile.rate_a),
+                "--partial-reception" if profile.partial_reception else "--no-partial-reception",
                 "--mode",
                 str(profile.mode),
                 "--gi",
                 str(profile.gi),
+                "--segments-a",
+                str(profile.segments_a),
+                "--segments-b",
+                str(profile.segments_b),
                 "--rate-b",
                 str(profile.rate_b),
                 "--interleave-a",
@@ -369,31 +421,7 @@ def run(
             fail("native_result_missing")
         if any(p.returncode != 0 for p in children):
             fail("native_process_failed")
-        # Read-only independent connection verifies the research restore result.
-        if job["restoration"]["state"] == "restored":
-            with socket.create_connection((worker.rx.HOST, 30431), timeout=2) as sock:
-                sock.settimeout(2)
-                stream = sock.makefile("rb")
-                try:
-                    _, xml = worker.rx.probe.fetch_payload(
-                        sock, stream, "PRINT", worker.rx.probe.MAX_XML_BYTES
-                    )
-                finally:
-                    stream.close()
-                phy, device, _ = worker.rx.validate_context(xml)
-                session = worker.rx.Session(sock, phy, device, [])
-                try:
-                    readback = {a: session.read(d, c, a) for d, c, a, _ in worker.rx.SETTINGS}
-                finally:
-                    session.stream.close()
-            job["independent_readback"] = readback
-            if not all(
-                worker.matches(a, readback[a], v)
-                for a, v in job["baseline"].items()
-                if a != "hardwaregain" or job["baseline"]["gain_control_mode"] == "manual"
-            ):
-                job["restoration"]["state"] = "failed"
-                fail("independent_restore_mismatch")
+        verify_restoration(worker, job)
     except Exception:
         fail("live_pipeline_failed")
         if job["restoration"]["state"] == "restored":
@@ -444,9 +472,18 @@ def main() -> None:
     parser.add_argument("lock_root", type=Path)
     parser.add_argument("lock_fd", type=int)
     parser.add_argument("seconds", type=int, choices=range(1, 601))
+    parser.add_argument("--profile", type=Path)
     args = parser.parse_args()
     sys.exit(
-        run(args.config, args.source_id, args.directory, args.lock_root, args.lock_fd, args.seconds)
+        run(
+            args.config,
+            args.source_id,
+            args.directory,
+            args.lock_root,
+            args.lock_fd,
+            args.seconds,
+            args.profile,
+        )
     )
 
 

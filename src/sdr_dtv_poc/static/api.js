@@ -108,7 +108,7 @@
           // Global restoration/storage gates are not exposed by these endpoints.
           restore: null, storage: null};
       },
-      startScan: async (channels, request_id, input_kind = 'synthetic') => scanView(await start('/api/scans', {request_id, input_kind, channels})),
+      startScan: async (channels, request_id, input_kind = 'synthetic') => scanView(await start('/api/scans', {request_id, input_kind, channels, duration_seconds: input_kind === 'live' ? 1200 : 180})),
       getScan: async id => scanView(await request(`/api/scans/${encodeURIComponent(id)}`)),
       stopScan: async id => scanView(await post(`/api/scans/${encodeURIComponent(id)}/stop`)),
       startSession: async (service_key, request_id) => sessionView(await start('/api/sessions', {request_id, service_key, duration_seconds: 600, enable_hls: true})),

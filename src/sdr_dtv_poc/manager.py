@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 from .adapter import Adapter, FileAdapter, FileWorkerFailed, LiveAdapter
 from .config import Settings, Source
 from .device_lock import DeviceBusy, DeviceLock
+from .live_config import LiveProfile
 from .media import Media
 from .models import (
     START_GRACE,
@@ -126,7 +127,12 @@ class Manager:
         kind = service.input_kind if service else request.input_kind
         source_id = service.source_id if service else request.source_id
         source = (
-            self.live_source(source_id)
+            self.live_source(
+                source_id,
+                LiveProfile.from_service(service.profile)
+                if service and "channel" in service.profile
+                else None,
+            )
             if kind == InputKind.live
             else self.synthetic_source(source_id)
             if kind == InputKind.synthetic
@@ -185,12 +191,14 @@ class Manager:
         self.task = asyncio.create_task(self.run(session, adapter, deadline))
         return session
 
-    def live_source(self, source_id: str) -> Source:
+    def live_source(self, source_id: str, profile: LiveProfile | None = None) -> Source:
         if not self.settings.live or not self.settings.device_lock_dir:
             raise Unavailable("live_not_configured")
-        if source_id not in self.settings.live.profiles:
+        if profile is None and source_id not in self.settings.live.profiles:
             raise Unavailable("source_not_registered")
-        return Source(self.settings.live.config_path, 18_000_000, live_id=source_id)
+        return Source(
+            self.settings.live.config_path, 18_000_000, live_id=source_id, live_profile=profile
+        )
 
     def synthetic_source(self, source_id: str) -> Source | None:
         if source_id == "demo":

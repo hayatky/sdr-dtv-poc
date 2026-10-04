@@ -4,6 +4,7 @@ import json
 import os
 import signal
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from typing import BinaryIO, Protocol
 
@@ -75,6 +76,8 @@ class LiveWorkerFailed(Exception):
 
 
 class LiveAdapter:
+    worker_module = "sdr_dtv_poc.live_worker"
+
     def __init__(
         self, settings: "Settings", source: Source, directory: "Path", seconds: int, lock_fd: int
     ):
@@ -87,17 +90,23 @@ class LiveAdapter:
     async def start(self) -> None:
         assert self.settings.live and self.settings.device_lock_dir
         self.directory.mkdir(parents=True, exist_ok=True)
+        profile_args: list[str] = []
+        if self.source.live_profile is not None:
+            profile_path = self.directory / "profile.json"
+            profile_path.write_text(json.dumps(asdict(self.source.live_profile)))
+            profile_args = ["--profile", str(profile_path)]
         self.log = (self.directory / "supervisor.log").open("xb")
         self.process = await asyncio.create_subprocess_exec(
             str(self.settings.live.native_python),
             "-m",
-            "sdr_dtv_poc.live_worker",
+            self.worker_module,
             str(self.settings.live.config_path),
             str(self.source.live_id),
             str(self.directory),
             str(self.settings.device_lock_dir),
             str(self.lock_fd),
             str(self.seconds),
+            *profile_args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=self.log,

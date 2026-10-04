@@ -107,6 +107,9 @@
   };
 
   const SCAN_STAGES = {
+    searching_tmcc: '放送方式を調べています', tmcc_detected: '放送方式を検出',
+    unsupported_tmcc: '検出した放送方式には未対応', unstable_tmcc: '放送方式を安定して確認できませんでした',
+    no_service: '放送方式を検出しましたが局情報を取得できませんでした',
     detected: 'TSの番組情報を検出', not_detected: '今回未検出', not_run: '未実行',
     none: '信号なし',
     signal: '信号のみ検出（番組情報は未確認）',
@@ -277,13 +280,13 @@
   function selectInput(kind) {
     Object.assign(state.diag, {inputKind: kind, result: null, phase: 'idle', error: null});
     state.scanForm.inputSelected = true;
-    if (!api.demo) state.scanForm.preset = kind === 'live' ? 'live' : 'synthetic';
+    if (!api.demo) state.scanForm.preset = kind === 'live' ? 'all' : 'synthetic';
   }
 
   function scanPresets() {
     if (api.demo) return SCAN_PRESETS.filter(p => !['synthetic', 'live'].includes(p.id));
     if (state.diag.inputKind === 'saved_ts') return [];
-    return SCAN_PRESETS.filter(p => state.diag.inputKind === 'live' ? p.id === 'live' : p.id !== 'live');
+    return SCAN_PRESETS.filter(p => state.diag.inputKind === 'live' ? p.id !== 'synthetic' : p.id !== 'live');
   }
 
   function scanRange() {
@@ -752,7 +755,7 @@
       return {tone: 'info', title: 'スキャンを中止しました', body: `${kept}中止までに検出して保存した局も一覧へ反映します。`};
     }
     if (scan.end_reason === 'deadline') {
-      return {tone: 'warn', title: '時間内にすべてのチャンネルを調べられませんでした', body: `スキャンは最大3分です。範囲を狭めて、もう一度お試しください。${kept}`};
+      return {tone: 'warn', title: '時間内にすべてのチャンネルを調べられませんでした', body: `スキャンの時間上限に達しました。未実行のチャンネルを含む範囲を選び、もう一度お試しください。${kept}`};
     }
     if (!found) {
       return {tone: 'warn', title: '局が見つかりませんでした', body: `${kept}${check}を確認してから、もう一度お試しください。`};
@@ -770,7 +773,7 @@
     return el('section', {class: 'panel', 'aria-labelledby': 'scan-title'},
       el('h3', {id: 'scan-title'}, '2. 局を探す（スキャン）'),
       el('p', null, !api.demo && state.diag.inputKind === 'live'
-        ? '実機で受信し、受信設定が登録されているチャンネルを調べます。未登録チャンネルを含むUHF全範囲の自動探索には現在対応していません。最大3分で終了します。'
+        ? '選んだ範囲を実機で順に受信し、チャンネルごとの放送方式と局を調べて保存します。全範囲のスキャンには数分かかり、最大20分で終了します。'
         : !api.demo && state.diag.inputKind === 'saved_ts' ? '保存TSからのスキャンには現在対応していません。'
         : '合成TSから局を探します。チャンネルは架空の割当てで、電波の検出ではありません。最大3分で終了します。'),
       blockNotice(reason),

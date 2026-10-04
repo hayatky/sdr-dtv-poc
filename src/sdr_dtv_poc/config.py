@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .live_config import LiveConfig
+from .live_config import LiveConfig, LiveProfile
 
 
 @dataclass(frozen=True)
@@ -12,6 +12,7 @@ class Source:
     path: Path
     bitrate: int
     live_id: str | None = None
+    live_profile: LiveProfile | None = None
 
 
 @dataclass(frozen=True)

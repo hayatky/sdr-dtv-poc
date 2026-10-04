@@ -4,15 +4,18 @@
 import asyncio
 import json
 import os
+import shutil
 import sqlite3
 import sys
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from .adapter import LiveAdapter
+from .adapter import LiveAdapter, LiveWorkerFailed
 from .config import Source
+from .live_config import LiveProfile
 from .media import timestamp
 from .models import EndReason, InputKind, Restore, Scan, ScanResult, ScanStart, Service, State
 
@@ -159,11 +162,6 @@ class Scans:
             raise Unavailable("live_not_configured")
         if request.input_kind == InputKind.saved_ts:
             raise Unavailable("saved_scan_not_configured")
-        if request.input_kind == InputKind.live:
-            assert m.settings.live
-            registered = {p.channel for p in m.settings.live.profiles.values()}
-            if not set(request.channels).issubset(registered):
-                raise Unavailable("live_channel_not_configured")
         if len(self.items) >= 1000:
             raise Conflict("scan_history_limit")
         scan = Scan(
@@ -200,17 +198,67 @@ class Scans:
             self.stop_event.set()
         return scan
 
+    async def discover(self, scan: Scan, channel: int) -> LiveProfile | None:
+        m = self.manager
+        assert m.settings.live and m.device.fd is not None
+        directory = m.settings.data_dir / "native" / f"{scan.id}-{channel}-discovery"
+        adapter = LiveAdapter(
+            m.settings,
+            Source(m.settings.live.config_path, 0, live_id=str(channel)),
+            directory,
+            45,
+            m.device.fd,
+        )
+        adapter.worker_module = "sdr_dtv_poc.discovery_worker"
+        scan.restore = Restore.pending
+        row = next(r for r in scan.results if r.physical_channel == channel)
+        row.state = "searching_tmcc"
+        m.store.save_record("scans", scan)
+        try:
+            await adapter.start()
+            assert adapter.process
+            await asyncio.wait_for(adapter.process.wait(), 50)
+        finally:
+            cleanup = asyncio.create_task(adapter.stop())
+            interrupted = False
+            while True:
+                try:
+                    scan.restore = await asyncio.shield(cleanup)
+                    break
+                except asyncio.CancelledError:
+                    interrupted = True
+            if scan.restore not in {Restore.verified, Restore.not_required}:
+                m.device.block(scan.id)
+            m.store.save_record("scans", scan)
+            if interrupted:
+                raise asyncio.CancelledError
+        if scan.restore != Restore.verified or adapter.failed:
+            row.state, row.error_code = "failed", "discovery_failed"
+            raise RuntimeError("channel discovery failed")
+        data = json.loads((directory / "discovery.json").read_text())
+        row.state = data["state"]
+        if row.state != "tmcc_detected":
+            return None
+        return LiveProfile(**data["profile"])
+
     async def live_probe(self, scan: Scan, channel: int, remaining: float) -> list[Service]:
         m = self.manager
         assert m.settings.live and m.device.fd is not None
-        candidates = [(k, p) for k, p in m.settings.live.profiles.items() if p.channel == channel]
-        if not candidates:
+        began_discovery = m.clock()
+        profile = await self.discover(scan, channel)
+        if profile is None:
             return []
-        source_id, profile = candidates[0]
+        remaining -= m.clock() - began_discovery
+        if remaining < 5:
+            await asyncio.sleep(max(0, remaining) + 1)
+        source_id = next(
+            (k for k, p in m.settings.live.profiles.items() if p.channel == channel),
+            f"uhf-{channel}",
+        )
         directory = m.settings.data_dir / "native" / f"{scan.id}-{channel}"
         adapter = LiveAdapter(
             m.settings,
-            m.live_source(source_id),
+            m.live_source(source_id, profile),
             directory,
             max(1, min(18, int(remaining))),
             m.device.fd,
@@ -233,6 +281,10 @@ class Scans:
                     output.write(data)
         except TimeoutError:
             pass
+        except LiveWorkerFailed:
+            # Classify after stop has collected the worker's restoration and
+            # pipeline result. Never continue after a capture/I/O failure.
+            pass
         finally:
             cleanup = asyncio.create_task(adapter.stop())
             interrupted = False
@@ -247,21 +299,32 @@ class Scans:
             m.store.save_record("scans", scan)
             if interrupted:
                 raise asyncio.CancelledError
-        if scan.restore != Restore.verified or adapter.failed:
+        if scan.restore != Restore.verified:
             raise RuntimeError("live scan failed")
+        if adapter.failed:
+            report = json.loads((directory / "live-result.json").read_text())
+            errors = set(report.get("errors", []))
+            if errors and errors <= {
+                "tmcc_profile_mismatch",
+                "native_result_missing",
+                "no_ts_sync",
+                "invalid_initial_ts",
+                "native_process_failed",
+                "native_process_ended",
+            }:
+                row = next(r for r in scan.results if r.physical_channel == channel)
+                row.state, row.error_code = "no_service", "demodulation_failed"
+                return []
+            raise RuntimeError("live scan worker failed")
         found = await probe(
             Source(directory / "scan.ts", 18_000_000), channel, source_id, InputKind.live
         )
         for service in found:
             service.profile = {
+                **asdict(profile),
                 "sample_rate_hz": 6_400_000,
-                "mode": profile.mode,
-                "gi": str(profile.gi),
-                "rate_b": profile.rate_b,
-                "interleave_a": profile.interleave_a,
-                "interleave_b": profile.interleave_b,
-                "tmcc": "configured_layers_match",
-                "layer": "B",
+                "tmcc": "detected_and_verified",
+                "layer": profile.layer,
             }
         return found
 
@@ -276,6 +339,11 @@ class Scans:
                 if self.stop_event.is_set():
                     scan.end_reason = self.stop_reason
                     break
+                if (
+                    shutil.disk_usage(m.settings.data_dir).free
+                    < m.settings.min_free_bytes + 128 * 1024 * 1024
+                ):
+                    raise OSError("insufficient scan space")
                 remaining = duration - (m.clock() - began)
                 if remaining <= 0:
                     scan.end_reason = EndReason.deadline
@@ -303,7 +371,15 @@ class Scans:
                         scan.end_reason = self.stop_reason if stop in done else EndReason.deadline
                         break
                     found = task.result()
-                result.state = "detected" if found else "not_detected"
+                result.state = (
+                    "detected"
+                    if found
+                    else "no_service"
+                    if result.state == "tmcc_detected"
+                    else "not_detected"
+                    if result.state == "not_run"
+                    else result.state
+                )
                 for service in found:
                     m.store.save_record("services", service)
                     self.services[service.id] = service
@@ -323,7 +399,19 @@ class Scans:
             for pending in (task, stop):
                 if pending:
                     pending.cancel()
-            await asyncio.gather(*(t for t in (task, stop) if t), return_exceptions=True)
+            cleanup_results = await asyncio.gather(
+                *(t for t in (task, stop) if t), return_exceptions=True
+            )
+            cleanup_failed = any(
+                isinstance(r, BaseException) and not isinstance(r, asyncio.CancelledError)
+                for r in cleanup_results
+            )
+            if scan.input_kind == InputKind.live and (
+                scan.restore not in {Restore.verified, Restore.not_required} or cleanup_failed
+            ):
+                scan.state, scan.end_reason = State.failed, EndReason.worker_failed
+                if scan.restore not in {Restore.verified, Restore.not_required}:
+                    m.device.block(scan.id)
             scan.ended_at, scan.current_channel = timestamp(), None
             scan.elapsed_seconds = m.clock() - began
             try:
