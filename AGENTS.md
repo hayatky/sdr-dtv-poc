@@ -43,7 +43,7 @@
 - 入口は `README.md`。開発手順は `docs/development.md`、確認済みの環境・結果・制限は `docs/validation.md` を参照する。実装開始時に最新Issue・PR・採用コード・実験結果を照合し、過去の記録の未達・停止判断を現在へ遡及適用しない。
 - Python/uv/FastAPI/Pydantic、単一APIプロセスと子ワーカー、SQLite、FFmpeg HLS、プレーンHTML/CSS/JavaScript＋scriptタグのVue 3を基本とする。
 - Vue/hls.jsは固定したバージョンを同梱し、UI/API/HLSを同一オリジンで配信する。初期バージョンはNode.js/npm・フロントビルド・実行時CDN、Redis/Celery/外部DBを必要としない。
-- 利用者はDocker Compose、開発者はuvで起動する。GNU RadioやFFmpeg、C++で書かれた受信処理に必要なライブラリやプログラムは別途明記し、uvだけで導入できるとは案内しない。
+- 利用時・開発時ともにアプリはDocker Composeで起動する。uvはPython依存の管理・テスト・静的検査などに使い、ホストのuvからAPIを直接起動する手順は提供しない。GNU RadioやFFmpeg、C++で書かれた受信処理に必要なライブラリやプログラムはコンテナ内へ導入し、利用者のホストへの導入を必須にしない。
 - 1ボード・同時1物理ch・1利用者・1録画。BS QAM、予約録画、複数チューナー、BonDriver等は初期範囲外。具体的な依頼・仕様変更なしに追加しない。
 - 研究元の全階層TS・保存A/Vの成功を、このWebUIの実機ライブ視聴・録画・導入成功とは扱わない。検証済みボード/FW・OS・ブラウザー・条件を明記し、未検証環境への互換性を約束しない。
 

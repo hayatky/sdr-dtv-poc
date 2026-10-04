@@ -230,3 +230,10 @@ artifacts/
 *.log
 gitleaks-report.*
 .private-identifiers
+
+# Reviewed receiver build source (not generated build output)
+!native/build/
+!native/build/runtime/
+!native/build/runtime/prepare_source.py
+!native/build/wideband/
+!native/build/wideband/prepare_source.py

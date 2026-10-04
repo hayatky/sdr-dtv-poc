@@ -1,27 +1,76 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Ubuntu 24.04 / x86_64, rootful Docker Engine. Local builds only.
 services:
-  app:
-    build: .
+  receiver-host:
+    build:
+      context: .
+      target: host
     init: true
-    ports:
-      - "127.0.0.1:${SDR_PORT:-8000}:8000"
+    network_mode: host
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, CHOWN, FOWNER, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
     environment:
-      SDR_ORIGIN: "${SDR_ORIGIN:-http://localhost:8000}"
+      SDR_UID: "${SDR_UID:-10001}"
+      SDR_GID: "${SDR_GID:-10001}"
     volumes:
-      - app-data:/data
+      - live-data:/data
+      - ${SDR_DEVICE_DIR:-/var/lib/sdr-dtv-poc/device}:/device
+      - /var/lib/sdr-dtv-poc/host:/host-state
+      - pcsc:/run/pcscd
+      - /run/pcscd:/host-pcsc:ro
+      - /dev/bus/usb:/dev/bus/usb
+      - /sys/bus/usb:/sys/bus/usb:ro
+      - /sys/devices:/sys/devices:ro
+      - /run/udev:/run/udev:ro
+    device_cgroup_rules:
+      - 'c 189:* rw'
+    read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777
+    pids_limit: 32
+    mem_limit: 128m
+    cpus: 1
+    stop_grace_period: 680s
+    healthcheck:
+      test: [CMD, python, -c, "from pathlib import Path; assert Path('/run/pcscd/host-ready').is_file() and Path('/run/pcscd/pcscd.comm').is_socket()"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+  app:
+    build:
+      context: .
+      target: receiver
+    init: true
+    network_mode: host
+    user: "${SDR_UID:-10001}:${SDR_GID:-10001}"
+    depends_on:
+      receiver-host:
+        condition: service_healthy
+    environment:
+      SDR_ORIGIN: "http://localhost:${SDR_PORT:-8000}"
+      PCSCLITE_CSOCK_NAME: /pcsc/pcscd.comm
+    command: [uvicorn, 'sdr_dtv_poc.app:create_app', --factory, --host, '127.0.0.1', --port, '${SDR_PORT:-8000}', --workers, '1', --no-proxy-headers, --no-access-log, --timeout-graceful-shutdown, '35']
+    volumes:
+      - live-data:/data
+      - ${SDR_DEVICE_DIR:-/var/lib/sdr-dtv-poc/device}:/device
+      - pcsc:/pcsc:ro
+      - /sys/bus/usb:/sys/bus/usb:ro
+      - /sys/devices:/sys/devices:ro
+    tmpfs:
+      - /tmp:size=128m,mode=1777
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    pids_limit: 64
-    mem_limit: 512m
-    cpus: 2
-    stop_grace_period: 35s
+    pids_limit: 128
+    mem_limit: 3g
+    cpus: 8
+    stop_grace_period: 45s
     healthcheck:
-      test: ["CMD", "python", "-c", "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8000/api/health', headers={'Host':os.environ['SDR_ORIGIN'].split('://',1)[1]}); urllib.request.urlopen(r,timeout=2).read()"]
-      interval: 10s
+      test: [CMD, python, -c, "import os,urllib.request; urllib.request.urlopen(os.environ['SDR_ORIGIN']+'/api/health',timeout=2).read()"]
+      interval: 5s
       timeout: 3s
-      retries: 3
+      retries: 12
 volumes:
-  app-data:
+  live-data:
+  pcsc:

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Pin separately acquired live sources; never copy them into the product."""
+"""Verify both the original research inputs and the licensed bundled snapshot."""
 
 import hashlib
 from pathlib import Path
@@ -21,7 +21,23 @@ EXPECTED = {
 }
 
 
+BUNDLED_EXPECTED = {
+    "pocs/isdb-t-ts/local_cp.py": "f5cf944051b469dc3b321d8e0952f5e58fc99a9451708e8580ea07ba6dd66844",
+    "src/receiver/__init__.py": "145e471a650a45ffc17da3334727791cc6925c1622352ce3ed604003a1931d7c",
+    "src/receiver/worker.py": "81e41de47b31f3c5e2fef417f1729ade117c65e855ef27879223cf948cba57e2",
+    "pocs/iq-lab/rx_capture.py": "2226a60740d591758439c2772ce4cb462dc2052433561121cee8b809a0c2157e",
+    "scripts/iio-readonly-probe.py": "44f9ed8e6e968ba3dfca80436e19db1bd4352fb8e105ebf554771f200fcc7319",
+    "pocs/isdb-t-ts/tmcc.py": "79c05da2fdc9c57ff1f07f603f10a96f35582d26434ab69c24c133546a4bfeaa",
+    "pocs/isdb-t-ts/wideband/file_receiver.py": "94d07040d3e87ec05cf2dcd131377dc43e6e185f637ce1b3b88a98267ae86a43",
+    "pocs/isdb-t-ts/wideband/fec_evidence.py": "942857c83860c2afa1a5ff18ebd0620d779af38baf877e602c813a8af3c7eac8",
+    "pocs/isdb-t-ts/wideband/live_multiplex.py": "56d09117d5c15037b5e60a01e9b44c3ff04a32887f67699afd94cdcc2d005383",
+    "pocs/isdb-t-ts/wideband/multiplex_model.py": "8790eb6bef94d343874d6bafacefb2267241261e875973ee45627b515217d5a4",
+    "pocs/isdb-t-ts/wideband/reconstruct_multiplex.py": "9bc58a9ee2f19106c5dde59c56b63d3c654bdc900a098addbf986f5a712ed7f1",
+    "pocs/isdb-t-ts/wideband/stream_convert_ci16.py": "b9f02ab667806f9317c0489ba18773c0de58e0e5f511486092f057f8b6850953",
+}
+
+
 def verify(root: Path) -> None:
-    for name, expected in EXPECTED.items():
-        if hashlib.sha256((root / name).read_bytes()).hexdigest() != expected:
-            raise ValueError("research live source hash mismatch")
+    actual = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in EXPECTED}
+    if actual != EXPECTED and actual != BUNDLED_EXPECTED:
+        raise ValueError("research live source hash mismatch")

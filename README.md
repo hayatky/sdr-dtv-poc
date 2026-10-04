@@ -5,7 +5,7 @@ SDRは、電波をデジタルデータとして取り込み、ソフトウェ�
 このプロジェクトでは、受信ボードとUbuntu PCを組み合わせてテレビ受信を試します。
 
 **2026-10-04現在、実ボードでのライブ視聴と最大5分の録画・録画再生まで確認しています。**
-既存データを使わないCompose/uv環境で、合成デモのスキャンから録画再生まで確認しています。
+既存データを使わないDocker Compose環境で、合成デモのスキャンから録画再生まで確認しています。
 確認した環境と制限は[検証結果と対応環境](docs/validation.md)を参照してください。
 機器を持っていない場合も、下記の合成デモで操作と映像・音声を試せます。
 
@@ -96,9 +96,9 @@ Vueとhls.jsは同梱しているため、Node.js/npmや実行時CDNは不要で
 - **市販チューナーと同じ使い勝手や互換性を保証するものではありません。**
   再生開始までの待ち時間があり、録画の長さと再生可能な長さは境界の処理等で異なることがあります。
   BS受信、EPG・予約録画、複数チューナー、タイムシフト、字幕・データ放送の完全対応は未実装です。
-- **実機用の導入には追加準備が必要です。** 研究元ソースや外部CASは別途取得します。
+- **実機には対応する機器と接続が必要です。** 必要な受信ソースは同梱し、外部CASはローカルビルド時に自動取得します。
   合成デモは新しい設定・保存先で導入を確認しましたが、新規OSや実機用の新規構築を確認した結果ではありません。
-  研究元wrapperの再配布条件は未確定で、実機用イメージは配布対象に含めません。
+  同梱する自作の受信ソースはGPL-3.0-or-laterです。実機用イメージはローカルで構築し、配布対象に含めません。
   APIの公開先はlocalhostを基本とし、放送映像のインターネット配信は対象にしていません。
 
 ## ここまでの開発
@@ -122,6 +122,49 @@ Vueとhls.jsは同梱しているため、Node.js/npmや実行時CDNは不要で
 
 拡張の順序・時期は未定です。全体の進捗は[Issue #2](https://github.com/hayatky/sdr-dtv-poc/issues/2)で管理します。
 
+## Docker Composeで実機を起動
+
+**通常の `docker compose up --build -d --wait` は実機用です。**
+合成デモは後述の `compose.demo.yaml` を明示して起動します。
+
+Ubuntu 24.04 / x86_64で、rootful Docker EngineとDocker Composeを用意してください。
+対応するSDRボード1台をUSB接続し、確認済みの地上波信号をRX端子へ接続します。
+スクランブルされた放送を見るには、対応するカードとUSBカードリーダーも必要です。
+macOS/WindowsのDocker Desktop、rootless Docker、別のボード/FWはこの起動手順の対象外です。
+
+```sh
+git clone https://github.com/hayatky/sdr-dtv-poc.git
+cd sdr-dtv-poc
+docker compose up --build -d --wait
+```
+
+[http://localhost:8000](http://localhost:8000)を開き、「実機ライブ」→「接続を確認する」→
+「スキャンを開始する」→検出した局の「視聴する」と進めます。視聴中に録画を開始できます。
+初回は同梱した受信ソースと、公開上流から取得するGNU Radio、復調ブロック、外部CAS、FFmpeg、TSDuckを
+ビルド・導入するため、ネットワーク接続とビルド用の空き容量が必要です。
+事前の研究リポジトリ取得、ローカルイメージ作成、`live.env`作成、uvの導入は不要です。
+
+起動時に専用サービスが対象ボードのRNDISへ一時アドレスを設定し、コンテナ内のPC/SCを
+準備します。Web APIは非rootで動作し、機器接続を変更する権限やDocker socketを持ちません。
+起動や画面の再読込みでは受信・スキャン・録画を開始しません。
+ホスト側にPC/SCがあれば専用ソケットを介して再利用し、なければコンテナ内で起動します。
+既存のネットワーク設定と競合する場合は、その設定を変更せずエラーにします。[競合時の対処](docs/live-receiver.md#通常起動でのエラーと対処)を参照してください。
+
+研究ツールを併用していたPCでは、最初に[既存環境との共存](docs/live-receiver.md#既存環境との共存)を確認し、
+同じ機器の排他・復旧記録を共有してください。初めて使うPCでは追加設定は不要です。
+
+```sh
+# 停止。APIの受信終了と復元を待ち、一時ネットワーク設定も戻す
+docker compose down
+```
+
+録画・局一覧は `live-data` ボリュームへ保存します。通常の停止で `-v` を付けないでください。
+従来の合成デモの `app-data` ボリュームは引き継がず、削除もしません。
+ポートを変える場合は `SDR_PORT=18000 docker compose up --build -d --wait` とし、
+[http://localhost:18000](http://localhost:18000)を開きます。
+受信品質・対応環境の制限は変わりません。新しい起動経路の検証範囲は
+[Compose起動の検証](docs/validation-compose-live.md)に記録します。
+
 ## Docker Composeで合成デモを起動
 
 対象はUbuntu 24.04 / x86_64です。Docker EngineとComposeを用意して実行します。
@@ -136,10 +179,10 @@ cd sdr-dtv-poc
 研究元repo、SDRボード、カード、放送素材、Node.js/npmは不要です。
 
 ```sh
-docker compose up --build -d --wait
+docker compose -f compose.demo.yaml up --build -d --wait
 # ブラウザーで http://localhost:8000 を開く
 # 使用後は停止する（保存用volumeは保持する）
-docker compose down
+docker compose -f compose.demo.yaml down
 ```
 
 通常の画面は実APIへ接続します。「接続を確認する」→「スキャンを開始する」→
@@ -159,61 +202,37 @@ Vue 3.5.22 / hls.js 1.6.13は同梱済みで、実行時CDNやフロントのビ
 参考に`SDR_PORT`と`SDR_ORIGIN`を一致させます。例:
 
 ```sh
-SDR_PORT=18000 SDR_ORIGIN=http://localhost:18000 docker compose up -d --wait
+SDR_PORT=18000 SDR_ORIGIN=http://localhost:18000 docker compose -f compose.demo.yaml up -d --wait
 ```
 
 既存の環境と並べて試す場合は、新しいディレクトリに加えて、別のproject名と未使用ポートを使います。
 同じproject名を使うと、別ディレクトリでも既存のvolumeやコンテナを共有する場合があります。
 
 ```sh
-SDR_PORT=18000 SDR_ORIGIN=http://localhost:18000 docker compose -p sdr-demo-trial up --build -d --wait
+SDR_PORT=18000 SDR_ORIGIN=http://localhost:18000 docker compose -f compose.demo.yaml -p sdr-demo-trial up --build -d --wait
 # 停止時も同じproject名を指定する。保存用volumeは残る
-docker compose -p sdr-demo-trial down
+docker compose -f compose.demo.yaml -p sdr-demo-trial down
 ```
 
 コンテナはUID/GID 10001の非root、read-only filesystemで実行します。
 デバイス・Docker socket・特権モードは使いません。SQLite・オリジナルTS・HLSは`app-data`
 volumeへ保存し、アプリで出力量と空き容量を監視します。起動時に自動RXしません。
-`docker compose down -v`は保存データを削除するため、通常の停止には使いません。
+`docker compose -f compose.demo.yaml down -v`は保存データを削除するため、通常の停止には使いません。
 
-## uvで開発・起動
+## 開発用の検査
 
-Python 3.12、uv 0.12.18を使います。UbuntuでFFmpegを別途導入してください。
-uvだけではFFmpeg、GNU Radio、C++の受信ブロックは導入されません。
-合成デモにはFFmpeg/ffprobeが必要です。実機用のGNU RadioとC++拡張は
-[固定した受信環境の構築手順](docs/receiver.md)で別コンテナへ導入します。
-ホストのPythonへ暗黙に混ぜず、[実機用の起動手順](docs/live-receiver.md)から接続します。
+アプリの起動は、開発時もDocker Composeを使います。実機は通常の`compose.yaml`、
+合成デモは`compose.demo.yaml`で起動してください。ホストのuvからAPIを直接起動する手順は提供しません。
+GNU Radio・C++の受信ブロック・FFmpegはコンテナ内へ導入するため、ホストへの導入は不要です。
+
+uvはPython依存の管理、テスト、静的検査などの開発作業に使います。
+Python 3.12・uv 0.12.18と、機密検査用のGitleaksを準備する手順は
+[開発環境](docs/development.md)を参照してください。
 
 ```sh
-sudo apt-get update
-sudo apt-get install ffmpeg=7:6.1.1-3ubuntu5
 uv sync --locked
-# 次の2行は初回だけ実行する。既存ファイルがある場合は下記の説明を参照する
-uv run --locked python scripts/generate-demo.py
-uv run --locked python scripts/generate-demo.py --output data/demo/demo-14.ts --channel 14
-uv run --locked uvicorn sdr_dtv_poc.app:create_app --factory \
-  --host 127.0.0.1 --port 8000 --workers 1 --no-proxy-headers --no-access-log \
-  --timeout-graceful-shutdown 10
+sh scripts/check.sh
 ```
-
-別ターミナルでAPI・TS出力まで確認できます。
-
-```sh
-uv run --locked python scripts/smoke-api.py
-```
-
-生成スクリプトは、出力先のTSまたは同名のJSONが存在するとエラーで終了します。
-生成済みならJSONの`duration_seconds:360`と`physical_channel_label:13/14`を確認し、
-生成コマンドを省略して使います。旧8秒デモ等からの再生成は、新しいディレクトリに
-13chの`demo.ts`と14chの`demo-14.ts`を作り、`SDR_DEMO_PATH`を新しい`demo.ts`へ変更します。
-14chの入力は13chのファイル名の末尾に`-14`を加えたTSとして解決されます。
-停止はCtrl+Cです。終了を待ってから再起動してください。APIは必ず単一プロセスで使います。
-詳細は[API仕様](docs/api.md)、[受信処理の固定と診断](docs/receiver.md)を参照してください。
-
-既存APIと並行して試す場合は、環境変数`SDR_DATA_DIR`で新しい保存先を指定し、
-`SDR_ORIGIN=http://localhost:18001`と起動引数`--port 18001`を一致させます。
-合成入力も`SDR_DEMO_PATH`で新しい`demo.ts`を選びます。
-実機用の`SDR_LIVE_CONFIG`や`SDR_SAVED_SOURCES`を引き継がない専用ターミナルを使ってください。
 
 ## 操作と保存データ
 
@@ -226,7 +245,7 @@ uv run --locked python scripts/smoke-api.py
 4. 使用後は受信・録画を停止し、実機なら復元結果を確認してからサーバーを停止します。
    実機のホスト準備も[停止手順](docs/live-receiver.md)に従って終了します。
 
-Composeの保存先はprojectごとの`app-data` volume、uvの既定は`data/app`です。
+Composeの保存先はprojectごとのvolumeで、実機は`live-data`、合成デモは`app-data`です。
 局一覧・録画情報のSQLite、受信時のTS、再生用派生物、一時HLSを保存します。
 録画TSは再生用変換で上書きせず、ダウンロードも同じTSです。実機でスクランブルされている場合は、
 ダウンロードしたTSだけでは通常のプレイヤーで再生できないことがあります。

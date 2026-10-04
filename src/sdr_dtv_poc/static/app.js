@@ -660,9 +660,9 @@
   }
   function recoveryFailureGuidance(code) {
     if (code === 'board_unreachable') return [
-      'USBを差し直して10秒待ってから、もう一度お試しください。同じエラーなら、Ubuntu側でこのアプリのフォルダーに移動し、',
-      el('code', null, 'uv run --locked python scripts/live-start.py data/live.env'),
-      ' を実行してから再試行してください。詳しい手順は docs/recovery.md を確認してください。',
+      'USBの接続を確認してください。接続できない場合は、Ubuntu側でこのアプリのフォルダーに移動し、',
+      el('code', null, 'docker compose logs receiver-host'),
+      ' で接続準備の結果を確認してください。USB再接続後の通信設定は自動では更新されません。復旧記録を削除せず、docs/recovery.md の手順に従ってください。',
     ];
     if (code === 'device_busy') return '別の処理が受信機を使用しています。ほかの受信処理が終わるまで待ってから再試行してください。自動では停止しません。';
     if (code === 'settings_changed') return '保存していた基準値と現在の設定が一致しません。再試行せず、受信機の設定を確認してください。';

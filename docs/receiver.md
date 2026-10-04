@@ -24,8 +24,9 @@ APIは`synthetic`、管理者が登録した`saved_ts`、および設定済み�
 研究元の`runtime/prepare_source.py`と`wideband/prepare_source.py`が固定上流から
 受信ブロックを抽出・変換します。OFDM探索境界、Viterbi状態、TMCC境界等の研究元の
 変更をそのまま利用します。PoC側で変換を再実装しません。
-`THIRD_PARTY_NOTICES.md`に記載した研究元自作ファイルの配布条件が未確定なので、
-これらをGitや既定のデモimageには同梱しません。権限のある利用者が別途取得する手順です。
+通常のDockerfileは、`native/`に同梱したGPL-3.0-or-laterのPythonソースと、公開上流の
+固定C++ソースから構築します。元のソース・変更点・ライセンスは `native/README.md` と
+`THIRD_PARTY_NOTICES.md` に記載しています。以下は既存環境向けの手動再構築手順です。
 
 ## 実機を使わない再構築と診断
 
@@ -94,7 +95,7 @@ Mode/GI、変調、符号率、TIは実測TMCCから決める必要がありま�
 27chの条件を他局へ固定適用しません。nativeの`--help`の既定値を選局仕様にはしません。
 元の研究用`run-live.sh`/`run-file.sh`はsudo/Dockerを呼ぶため、Web APIから実行しません。
 実機用イメージではネイティブ環境を同じコンテナへ配置し、OS Pythonの子プロセスとして起動します。
-APIのuv環境とは分離しています。設定と起動方法は[実機の導入手順](live-receiver.md)を参照してください。
+同じコンテナ内のAPI用Python仮想環境とは分離しています。設定と起動方法は[実機の導入手順](live-receiver.md)を参照してください。
 
 ## 所有者・停止・復元
 

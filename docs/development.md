@@ -18,6 +18,10 @@ Ruff・mypy・pytestは維持し、このPoCの重要な動作を少ない手間
 現行設定では`src/`・`scripts/`・`tests/`をmypy strictで検査しています。
 HTTPXはTestClientを使うAPIテストの開発依存として導入しています。
 
+アプリは開発時もDocker Composeで起動します。実機用の`compose.yaml`と
+合成デモ用の`compose.demo.yaml`を使い分けます。uvは依存管理・検査・補助ツール用で、
+ホストへGNU RadioやC++の受信ブロックを導入する起動方法は提供しません。
+
 ## 初回準備
 
 uv 0.12.18とGitleaks 8.30.1を準備してください。
@@ -74,11 +78,10 @@ CIとhookは`--locked`で、lockfileの不整合を失敗として扱います�
 
 ## 実機・native依存とテスト
 
-GNU Radio・C++復調ブロック・FFmpeg・ボード接続のホスト準備は、uvでの
-Python依存導入とは別です。uvの管理PythonからOS導入のGNU Radioを
-そのままimportできる保証はありません。受信backendの固定したバージョン、Python ABI、
-共有ライブラリ、ライセンスとビルド手順を確認してadapterの実行環境を決めます。
-`--system-site-packages`による暗黙の取り込みを標準にはしません。
+GNU Radio・C++の受信ブロック・FFmpeg・TSDuckはDockerfileでコンテナ内へ導入します。
+OS Pythonで動く受信処理と、APIのPython仮想環境もコンテナ内で分離します。
+通常の利用や開発用サーバーの起動に、これらをホストへインストールする必要はありません。
+uvの管理PythonへOSのGNU Radioを混ぜる設定も不要です。
 
 通常のテストとCIでは実機を操作しません。機密検査に加え、合成TSによるAPI、
 開始・停止・EOF・session期限・排他・異常終了・DB障害・再起動時の回収と
@@ -127,7 +130,8 @@ uv run --no-project --python 3.12 --with playwright==1.58.0 \
 ## WebUI経由の検証
 
 `scripts/smoke-webui.py`は実画面のボタンをChromiumで操作します。
-専用APIを起動し、終了時には自分が起動したプロセスだけを停止します。
+テスト専用のAPIを一時的に起動し、終了時には自分が起動したプロセスだけを停止します。
+これは開発者向けの回帰試験であり、利用者向けのサーバー起動方法ではありません。
 既存の保存先を拒否し、検証で作った録画は削除しません。
 起動中の別API・他担当のCompose project・volumeは使いません。
 実行例は以下のとおりです。FFmpegとChromium、およびChromiumの実行に必要なOSライブラリを別途用意します。
@@ -166,6 +170,21 @@ uv run --locked python scripts/smoke-stage2.py --origin http://localhost:18324 \
 通常の共通検査は実機へ接続しません。実機用の固定ソース、専用ホスト準備、
 非rootコンテナ、有限時間の試験と終了手順は[live-receiver.md](live-receiver.md)、
 成功・失敗・未実行の区別は[実機での検証記録](validation-live.md)を参照してください。
-研究元のPythonソースは`prepare-live.py`でGitオブジェクトから別途抽出し、起動時もhashを確認します。
+通常の構成は同梱した`native/receiver`を使い、起動時にhashを確認します。
+既存の手動管理環境で使う`prepare-live.py`は、研究元のGitオブジェクトから抽出する補助ツールです。
 native imageの共有ライブラリはこのPythonファイルのhash照合には含まれないため、
 既存の固定ビルド手順とimage ID・package記録を併用します。
+
+
+## 通常のCompose起動と同梱ソース
+
+通常の `compose.yaml` / `Dockerfile` は実機用です。合成検証は
+`docker compose -f compose.demo.yaml up --build -d --wait` で明示します。
+従来の `compose.live.yaml` / `Dockerfile.live` と `live-start.py` は既存の手動管理環境向けです。
+
+`native/`は受信処理の固定スナップショットです。元の構造と動作を保つためRuffの対象から
+除外していますが、共通pytestでファイル集合・SHA-256・構文・改変検出を確認します。
+実処理のimportとネイティブビルドはDockerで別途確認します。
+同梱元に秘密・個体情報・放送素材がないことを確認し、更新時も `manifest.json` と
+`live_sources.py` のハッシュ、ライセンス通知を照合してください。
+`host_service.py`の試験は偽の接続情報と一時ディレクトリを使い、実機やホスト設定を変更しません。

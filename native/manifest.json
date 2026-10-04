@@ -1,0 +1,129 @@
+{
+  "receiver/pocs/isdb-t-ts/local_cp.py": {
+    "source_commit": "0b00caacacacd63f95b284575fa843583085f78f",
+    "source_path": "pocs/isdb-t-ts/local_cp.py",
+    "source_sha256": "9ba4a07e88353f2f77828804df10c8a3654e026a59b47bd848b7368e315dde4b",
+    "sha256": "f5cf944051b469dc3b321d8e0952f5e58fc99a9451708e8580ea07ba6dd66844",
+    "changes": [
+      "SPDX license declaration"
+    ]
+  },
+  "receiver/src/receiver/__init__.py": {
+    "source_commit": "0b00caacacacd63f95b284575fa843583085f78f",
+    "source_path": "src/receiver/__init__.py",
+    "source_sha256": "24a7c64cca8e87edfcccc0914b3fbdd168cedca8173de4c0ae3bd201aeeb3962",
+    "sha256": "145e471a650a45ffc17da3334727791cc6925c1622352ce3ed604003a1931d7c",
+    "changes": [
+      "SPDX license declaration"
+    ]
+  },
+  "receiver/src/receiver/worker.py": {
+    "source_commit": "0b00caacacacd63f95b284575fa843583085f78f",
+    "source_path": "src/receiver/worker.py",
+    "source_sha256": "87f9824133af9193f947c14dcb88ef6d4ab88934bbc3dd58734d5eba3d6a03c6",
+    "sha256": "81e41de47b31f3c5e2fef417f1729ade117c65e855ef27879223cf948cba57e2",
+    "changes": [
+      "SPDX license declaration"
+    ]
+  },
+  "receiver/pocs/iq-lab/rx_capture.py": {
+    "source_commit": "0b00caacacacd63f95b284575fa843583085f78f",
+    "source_path": "pocs/iq-lab/rx_capture.py",
+    "source_sha256": "16ae895ef6b920ebe8e720da08a4a841faf81f7521feeda195417c3a80113b96",
+    "sha256": "2226a60740d591758439c2772ce4cb462dc2052433561121cee8b809a0c2157e",
+    "changes": [
+      "SPDX license declaration"
+    ]
+  },
+  "receiver/scripts/iio-readonly-probe.py": {
+    "source_commit": "0b00caacacacd63f95b284575fa843583085f78f",
+    "source_path": "scripts/iio-readonly-probe.py",
+    "source_sha256": "eecd262773f6292916012415de08558696f14355f16d673bbfbe65ed30356b7f",
+    "sha256": "44f9ed8e6e968ba3dfca80436e19db1bd4352fb8e105ebf554771f200fcc7319",
+    "changes": [
+      "SPDX license declaration"
+    ]
+  },
+  "receiver/pocs/isdb-t-ts/tmcc.py": {
+    "source_commit": "0b00caacacacd63f95b284575fa843583085f78f",
+    "source_path": "pocs/isdb-t-ts/tmcc.py",
+    "source_sha256": "88f21beac0b9183e85eb9f143cf5cd1192fc166137e8f36d2d70e1fd66644799",
+    "sha256": "79c05da2fdc9c57ff1f07f603f10a96f35582d26434ab69c24c133546a4bfeaa",
+    "changes": [
+      "SPDX license declaration"
+    ]
+  },
+  "receiver/pocs/isdb-t-ts/wideband/file_receiver.py": {
+    "source_commit": "0b00caacacacd63f95b284575fa843583085f78f",
+    "source_path": "pocs/isdb-t-ts/wideband/file_receiver.py",
+    "source_sha256": "778584217170cef21794bd341118c0be5c83efffdfaf4a73942fe8674a23fedc",
+    "sha256": "94d07040d3e87ec05cf2dcd131377dc43e6e185f637ce1b3b88a98267ae86a43",
+    "changes": [
+      "SPDX license declaration"
+    ]
+  },
+  "receiver/pocs/isdb-t-ts/wideband/fec_evidence.py": {
+    "source_commit": "0b00caacacacd63f95b284575fa843583085f78f",
+    "source_path": "pocs/isdb-t-ts/wideband/fec_evidence.py",
+    "source_sha256": "664e5875852f8023f13b9d6fe5e79d38dc2f7b92100fe8018752ec3c3c4e7113",
+    "sha256": "942857c83860c2afa1a5ff18ebd0620d779af38baf877e602c813a8af3c7eac8",
+    "changes": [
+      "SPDX license declaration"
+    ]
+  },
+  "receiver/pocs/isdb-t-ts/wideband/live_multiplex.py": {
+    "source_commit": "0b00caacacacd63f95b284575fa843583085f78f",
+    "source_path": "pocs/isdb-t-ts/wideband/live_multiplex.py",
+    "source_sha256": "47c38ac26ff7fad3bedaf841e00bb48f9ad1df5231698f84b6d33904b7b75c73",
+    "sha256": "56d09117d5c15037b5e60a01e9b44c3ff04a32887f67699afd94cdcc2d005383",
+    "changes": [
+      "SPDX license declaration"
+    ]
+  },
+  "receiver/pocs/isdb-t-ts/wideband/multiplex_model.py": {
+    "source_commit": "0b00caacacacd63f95b284575fa843583085f78f",
+    "source_path": "pocs/isdb-t-ts/wideband/multiplex_model.py",
+    "source_sha256": "30f86e7ccc4e47ef5e9d5f0bd74c1d48d25317d3f7bd1ca0bdfbdcab4ad595cc",
+    "sha256": "8790eb6bef94d343874d6bafacefb2267241261e875973ee45627b515217d5a4",
+    "changes": [
+      "SPDX license declaration",
+      "upstream attribution"
+    ]
+  },
+  "receiver/pocs/isdb-t-ts/wideband/reconstruct_multiplex.py": {
+    "source_commit": "0b00caacacacd63f95b284575fa843583085f78f",
+    "source_path": "pocs/isdb-t-ts/wideband/reconstruct_multiplex.py",
+    "source_sha256": "b0cc2ce16cb998dcaab7a6747fa69a63f58e39372baf17d6d86e9a7385613dc1",
+    "sha256": "9bc58a9ee2f19106c5dde59c56b63d3c654bdc900a098addbf986f5a712ed7f1",
+    "changes": [
+      "SPDX license declaration"
+    ]
+  },
+  "receiver/pocs/isdb-t-ts/wideband/stream_convert_ci16.py": {
+    "source_commit": "0b00caacacacd63f95b284575fa843583085f78f",
+    "source_path": "pocs/isdb-t-ts/wideband/stream_convert_ci16.py",
+    "source_sha256": "328b490ba8f0c47e1000839b0dcb44fd5a90a0071556e039c106d0e4d83ee1bf",
+    "sha256": "b9f02ab667806f9317c0489ba18773c0de58e0e5f511486092f057f8b6850953",
+    "changes": [
+      "SPDX license declaration"
+    ]
+  },
+  "build/runtime/prepare_source.py": {
+    "source_commit": "b1dcbf3688db79f149ff3a255639a36860ec3924",
+    "source_path": "pocs/isdb-t-ts/runtime/prepare_source.py",
+    "source_sha256": "e501efe12dd85402e4361d3171374d8db42b1f5e004ec1164e5e2ec61ee3e625",
+    "sha256": "04c4ef8efeeb6aee216799b714bb9f473b03aef45f1c8bdc3fe8c135f9e0eff1",
+    "changes": [
+      "SPDX license declaration"
+    ]
+  },
+  "build/wideband/prepare_source.py": {
+    "source_commit": "b1dcbf3688db79f149ff3a255639a36860ec3924",
+    "source_path": "pocs/isdb-t-ts/wideband/prepare_source.py",
+    "source_sha256": "1d5c8f64f439cdd4fa1aa0f415868a668f187f7c7e301c4d0de4f9f02aba76fe",
+    "sha256": "22a1c4c7f2503da8aea47f5754ee36cac2fdd419cb82a89583330458b746c7d3",
+    "changes": [
+      "SPDX license declaration"
+    ]
+  }
+}

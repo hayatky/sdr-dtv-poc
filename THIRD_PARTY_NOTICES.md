@@ -28,7 +28,7 @@ Node/npm or a runtime CDN.
 
 ## OS runtime and generated demo
 
-The Dockerfile fixes Ubuntu 24.04 by digest, FFmpeg to `7:6.1.1-3ubuntu5`, and uv
+Dockerfile.demo fixes Ubuntu 24.04 by digest, FFmpeg to `7:6.1.1-3ubuntu5`, and uv
 by digest. The complete installed OS package versions are written to
 `/opt/packages.lock`; package notices remain in `/usr/share/doc/*/copyright`.
 FFmpeg is built by Ubuntu with GPL components. Its license depends on build
@@ -45,31 +45,33 @@ build instructions, and preserve each component's notices. A link to an upstream
 repository alone is not a substitute for that source delivery. This repository does not
 distribute images, wheels, or binary releases.
 
-## Research receiver (separate local acquisition)
+## Bundled research receiver
 
-The selected research revision is
-`hayatky/hlfec-sdr-lab@b1dcbf3688db79f149ff3a255639a36860ec3924`.
-Its receive blocks derive from `git-artes/gr-isdbt` at
-`56b2556c14ecc5d710070f969fda7a2deae65d8b` (GPL-3.0-or-later), with legacy
-one-segment blocks at `261019a65f5ac09144a81f0800f9a80bdc88e539`.
-The preparation scripts preserve upstream COPYING/LICENSE and produce hashes of
-source transformations. See `docs/receiver.md` for the fixed build and diagnosis.
+The minimum Python receiver snapshot is in `native/receiver`, from research
+commit `0b00caacacacd63f95b284575fa843583085f78f`. The two source preparation
+scripts in `native/build` are from `b1dcbf3688db79f149ff3a255639a36860ec3924`.
+The rights holder licenses the original portions of these selected files under
+GPL-3.0-or-later. This grant applies to this snapshot, not every file in the
+research repository. `native/manifest.json` records original and bundled hashes;
+changes are SPDX declarations and an upstream attribution, with no logic changes.
+The default build requires no access to the private research repository.
 
-That research revision does not supply a repository-wide license for its own
-Python wrappers and transformations. They are **not vendored or included in the
-default app image**. The local acquisition procedure requires access to the
-research repository. Confirm permission and applicable notices before adding
-those files or a derived receiver image to a public distribution. This is a
-remaining distribution requirement, not a claim that all research files have the
-upstream block license.
+The multiplex clock model references `utils/multiplex_frame_pattern.py` by
+Pablo Flores Guridi (2017), from `git-artes/gr-isdbt` commit
+`56b2556c14ecc5d710070f969fda7a2deae65d8b` (GPL-3.0-or-later).
+The upstream copyright and license notice is retained in `native/UPSTREAM-LICENSE`;
+full GPLv3 terms are in the root `LICENSE`. See `native/README.md` for source links.
 
-## Local live adapter and external CAS
+C++ receive blocks are downloaded during local builds from public
+https://github.com/git-artes/gr-isdbt at
+`56b2556c14ecc5d710070f969fda7a2deae65d8b`, and legacy blocks at
+`261019a65f5ac09144a81f0800f9a80bdc88e539` (GPL-3.0-or-later).
+Source preparation retains upstream headers, LICENSE/COPYING and transformation
+hashes. Exact Git source objects, generated sources, build scripts and package
+records remain in the local image. We do not publish that image; any future
+binary distribution must separately meet all component source-delivery obligations.
 
-The live wrapper inputs are pinned separately to research commit
-`0b00caacacacd63f95b284575fa843583085f78f` (PR #76). Their SHA-256 values
-are in `live_sources.py`; `prepare-live.py` extracts Git objects to local ignored
-storage. The native image still uses the baseline described above. The research
-wrappers and live CAS are bind-mounted, not redistributed in this repository.
+## External CAS and service information
 
 External CAS: https://github.com/tsukumijima/libaribb25 at
 `dc1d96a90ea554d8997b238fd6712eccf553cdb3`, unmodified local build of

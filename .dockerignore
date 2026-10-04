@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Allow only inputs deliberately copied into the demo image.
+# Allow only reviewed source/build inputs; never include local data or settings.
 **
 !Dockerfile
+!Dockerfile.demo
+!Dockerfile.live
 !pyproject.toml
 !uv.lock
 !README.md
@@ -16,5 +18,13 @@
 !src/sdr_dtv_poc/static/*.css
 !scripts/
 !scripts/generate-demo.py
+!examples/
+!examples/live.json
 !src/sdr_dtv_poc/static/vendor/
 !src/sdr_dtv_poc/static/vendor/*
+!native/
+!native/**/
+!native/**/*.py
+!native/README.md
+!native/manifest.json
+!native/UPSTREAM-LICENSE

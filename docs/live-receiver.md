@@ -1,9 +1,63 @@
 # 実機からWebUIへ接続する
 
-Ubuntu 24.04 / x86_64 / Docker Engineで確認した開発者向けのローカル経路です。
+## 通常起動
+
+初回利用はリポジトリ直下で `docker compose up --build -d --wait` を実行し、
+`http://localhost:8000`を開きます。対象はUbuntu 24.04 / x86_64、rootful Docker Engine、
+対応するボード1台と既存のRX配線です。スクランブルされた放送にはカードとUSBカードリーダーが必要です。
+Dockerだけで同梱した固定ソースと公開上流からビルドし、設定ファイルもイメージへ用意します。
+以下の「ローカルの準備」以降は、既に個別の設定・ソース・CASを管理している利用者向けの
+従来の `compose.live.yaml` の手順です。通常起動と同時に実行しないでください。
+
+通常構成の `receiver-host` は、対象USBのRNDISへ一時アドレスを設定するための
+`NET_ADMIN`と、保存先・ソケットを準備するための`CHOWN`・`FOWNER`・`DAC_OVERRIDE`だけを持ちます。
+ホストにPC/SCソケットがあれば、rootで動く固定のUNIXソケット中継を介して再利用します。
+中継先はホストのPC/SCだけで、接続元はこの構成の非root APIが使う0600のソケットです。
+ホストのPC/SCに対してはrootとして接続するため、この構成を使う利用者にカード利用を許可する運用が前提です。
+ホストの認証ポリシーやソケット権限は変更しません。通常のソケット接続に伴うサービスの自動起動はあり得ます。
+PC/SCがない場合だけコンテナ内のpcscdがUSBカードリーダーへアクセスします。ホストのサービスや恒久設定は変更せず、
+`privileged`、Docker socket、sudo、ホストのsystemd操作は使いません。
+`app`にはこれらの権限とUSBデバイスを渡しません。HTTPはlocalhostだけに公開します。
+機器接続の準備が成功してからAPIを起動しますが、これは放送波の受信成功を意味しません。
+
+`docker compose down`はAPIを先に停止し、受信ワーカーの終了を待ってから
+一時アドレスを削除し、RNDISを元のdown状態へ戻します。
+未解決のRX復旧記録や終了しないワーカーがある場合は接続を残して失敗します。
+復旧記録を削除して再開せず、[復旧手順](recovery.md)に従ってください。
+通常構成は自動のUSB再接続・受信再開を行いません。
+
+## 既存環境との共存
+
+初めて使うPCでは、共有する排他・復旧記録をホストの `/var/lib/sdr-dtv-poc/device` に作成します。
+Compose project名や保存先を変えても同じ場所を使い、ホスト準備自体にも共通の排他があります。
+研究ツールで同じボードを使っていた場合は、`.env`の`SDR_DEVICE_DIR`を研究ツールの
+実際の `data/receiver` の絶対パスへ設定し、`SDR_UID`と`SDR_GID`をその所有者に合わせます。
+既存のファイルを移動・削除したり、新しい排他ディレクトリで回避したりしないでください。
+従来のホスト準備・受信を正常に終了し、復元を確認してから新しい構成へ移行します。
+既存の録画や局一覧は移動せず、通常構成は専用の`live-data`ボリュームを作成します。
+
+## 通常起動でのエラーと対処
+
+`docker compose logs receiver-host`で短いエラー理由を確認できます。
+ログやローカル設定をそのまま公開しないでください。
+
+| エラー | 確認すること |
+|---|---|
+| `expected_one_sdr_board` / `expected_one_rndis_interface` | 対応ボード1台のUSB接続とRNDIS認識 |
+| `host_pcsc_not_socket` / `pcsc_start_failed` | ホストのPC/SCソケットが有効か、カードリーダーが認識されているか。既存サービスの設定は変更しない |
+| `rndis_in_use` / `board_subnet_in_use` | 従来の受信ツール・ホスト準備が残っていないか。既存の接続を無条件に削除しない |
+| `device_busy` / `host_preparation_in_use` | 別の受信・復旧・Composeが動いていないか |
+| `directory_owner_mismatch` | 既存の共有ディレクトリの所有者と`SDR_UID`・`SDR_GID`が一致しているか |
+| `host_restore_unverified` / `rx_restore_unverified` | 接続またはRXの復元を確認できていない。残した接続と復旧記録を調べ、復旧手順で照合する |
+
+ホストに既存の受信設定がある場合は、上記の競合解消が先に必要です。
+機器の認識や電波の品質までDockerの起動だけで保証するものではありません。
+## 従来の手動構築を使う場合
+
+以下はUbuntu 24.04 / x86_64 / Docker Engineで確認した開発者向けのローカル経路です。
 対象は確認済みの1ボード、既存のSLAVE/RNDIS接続、1物理ch・1録画です。
-macOS、Windows、別ボード/FWへの互換性は未確認です。普段の合成デモは既存の
-`compose.yaml`を使います。実機用は独立した`compose.live.yaml`を使います。
+macOS、Windows、別ボード/FWへの互換性は未確認です。通常の実機起動は`compose.yaml`、
+合成デモは`compose.demo.yaml`、以下の手動構築は`compose.live.yaml`を使います。
 
 ## ソースと処理
 
@@ -12,8 +66,9 @@ macOS、Windows、別ボード/FWへの互換性は未確認です。普段の�
 [研究元PR #76](https://github.com/hayatky/hlfec-sdr-lab/pull/76)の
 `0b00caacacacd63f95b284575fa843583085f78f`を使います。
 `live_sources.py`の12ファイルのSHA-256を起動時に照合し、相違があれば開始しません。
-研究元のwrapperの再配布条件は未確定なので、Gitや配布imageへコピーせず、
-利用権限のある人が別途取得して読み取り専用でbind mountします。
+通常構成では必要なwrapperを`native/receiver`へGPL-3.0-or-laterで同梱し、
+ライセンス表示追加後のハッシュ集合も照合します。以下の従来構成では、
+利用権限のある人が研究元から別途取得して読み取り専用でbind mountします。
 
 経路はIIOD → ci16_le 6.4 MS/s → 既存80/63変換 → cf32_le 512000000/63 S/s →
 既存の階層別復調 → 188 byte TSです。独立した復調器を複製しません。
@@ -167,11 +222,11 @@ Safariでは以前の両チャンネルの視聴・録画再生と、修正後27
 
 
 局名の取得には`Dockerfile.live`でSHA-256を照合して導入するTSDuckが必要です。
-既存の実機用コンテナは再ビルドしてください。ホストのuvで実行する場合も、
-同じ固定バージョンの`tstables`をPATHへ用意します。「接続を確認する」で局名取得の
+既存の実機用コンテナは再ビルドしてください。通常の`Dockerfile`にも同じTSDuckを同梱しており、
+ホストへの導入は不要です。「接続を確認する」で局名取得の
 ツールの有無を確認できます。表示だけを更新しても過去の未取得名は補完されません。
 再スキャンでSDTを取得すると、局一覧のIDを保持して局名を更新します。
 
-既存の環境ファイルがある場合は、`uv run --locked python scripts/live-start.py data/live.env`で
-一時ホスト準備とComposeの起動をまとめて行えます。上記の手動起動と同時に実行しないでください。
-ホスト準備のプロセスだけがsudoを使い、Web APIからsudoやDockerを呼び出すことはありません。
+従来の`live-start.py`は既存環境との互換性のために残しています。新しく導入する場合は、
+[READMEのDocker Compose手順](../README.md#docker-composeで実機を起動)を使ってください。
+Web APIからsudoやDockerを呼び出すことはありません。
