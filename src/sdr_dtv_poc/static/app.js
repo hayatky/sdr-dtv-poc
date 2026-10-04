@@ -646,8 +646,7 @@
 
   function renderDemoBanner() {
     const demo = api.demo;
-    if (!demo) return notice('info', '合成TSを使う動作確認',
-      '自作のテスト映像と音声を再生・録画します。実機での受信は未対応です。受信や録画はボタンを押したときだけ開始します。');
+    if (!demo) return null;
     return el('section', {class: 'demo-banner', 'aria-labelledby': 'demo-title'},
       el('p', {class: 'demo-title', id: 'demo-title'}, '◆ 表示確認用のデモです'),
       el('p', null, '画面に出る局・映像・録画はすべて架空の模擬データです。受信・録画・ファイルの保存は行っていません。'),
