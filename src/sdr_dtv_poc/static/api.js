@@ -93,8 +93,9 @@
       services: async () => (await request('/api/services')).map(s => ({...s, remote_control_key: s.remote_control_key_id})),
       recordings: async () => (await request('/api/recordings')).map(recordingView),
       async status() {
-        const [sessions, scans, recordings] = await Promise.all([
-          request('/api/sessions'), request('/api/scans'), request('/api/recordings')]);
+        const [sessions, scans, recordings, recovery] = await Promise.all([
+          request('/api/sessions'), request('/api/scans'), request('/api/recordings'),
+          request('/api/recovery')]);
         const latest = items => items.slice().sort((a, b) => b.started_at.localeCompare(a.started_at))[0] || null;
         const current = items => latest(items.filter(active)) || latest(items);
         const resolved = new Set([...sessions, ...scans, ...recordings].map(item => item.request_id));
@@ -105,10 +106,10 @@
           recordings: recordings.map(recordingView),
           observedRequestIds: [...resolved],
           stoppedIds: [...sessions, ...scans, ...recordings].filter(item => !active(item)).map(item => item.id),
-          // Global restoration/storage gates are not exposed by these endpoints.
-          restore: null, storage: null};
+          // Global restoration is exposed separately from session/scan history.
+          restore: null, storage: null, recovery};
       },
-      startScan: async (channels, request_id) => scanView(await start('/api/scans', {request_id, input_kind: 'synthetic', channels})),
+      startScan: async (channels, request_id, input_kind = 'synthetic') => scanView(await start('/api/scans', {request_id, input_kind, channels, duration_seconds: input_kind === 'live' ? 1200 : 180})),
       getScan: async id => scanView(await request(`/api/scans/${encodeURIComponent(id)}`)),
       stopScan: async id => scanView(await post(`/api/scans/${encodeURIComponent(id)}/stop`)),
       startSession: async (service_key, request_id) => sessionView(await start('/api/sessions', {request_id, service_key, duration_seconds: 600, enable_hls: true})),
@@ -117,6 +118,8 @@
       startRecording: async (session_id, request_id) => recordingView(await start('/api/recordings', {request_id, session_id, duration_seconds: 300})),
       getRecording: async id => recordingView(await request(`/api/recordings/${encodeURIComponent(id)}`)),
       stopRecording: async id => recordingView(await post(`/api/recordings/${encodeURIComponent(id)}/stop`)),
+      recoverReceiver: () => post('/api/recovery', {}),
+      deleteRecording: id => post(`/api/recordings/${encodeURIComponent(id)}/delete`),
       startPlayback: id => post(`/api/recordings/${encodeURIComponent(id)}/playback`),
       getPlayback: id => request(`/api/recordings/${encodeURIComponent(id)}/playback`),
     };
@@ -130,8 +133,10 @@
       throw new ApiError(error.status ?? 0, error.code || 'unknown_error');
     });
     return {mode: 'mock', demo: backend, cancel() { generation += 1; }, newRequestId: () => crypto.randomUUID(),
-      bootstrap: () => run('bootstrap'), status: () => run('status'),
+      bootstrap: () => run('bootstrap'),
+      status: async () => ({...(await run('status')), recovery: null}),
       diagnostics: kind => run('diagnostics', kind), services: () => run('services'), recordings: () => run('recordings'),
+      recoverReceiver: () => Promise.reject(new ApiError(409, 'feature_not_implemented')),
       startScan: (channels, request_id) => run('startScan', {channels, request_id}),
       getScan: id => run('getScan', id), stopScan: id => run('stopScan', id),
       async startSession(service_ref, request_id) {

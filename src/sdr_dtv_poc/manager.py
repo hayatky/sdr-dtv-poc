@@ -10,9 +10,10 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from .adapter import Adapter, FileAdapter, FileWorkerFailed
+from .adapter import Adapter, FileAdapter, FileWorkerFailed, LiveAdapter
 from .config import Settings, Source
 from .device_lock import DeviceBusy, DeviceLock
+from .live_config import LiveProfile
 from .media import Media
 from .models import (
     START_GRACE,
@@ -28,6 +29,7 @@ from .models import (
     State,
 )
 from .recording import Recordings
+from .recovery import Recovery
 from .scanning import Scans
 from .store import Store
 
@@ -102,6 +104,7 @@ class Manager:
             self.requests[session.request_id] = (session.id, request)
         self.recordings = Recordings(self)
         self.scans = Scans(self)
+        self.recovery = Recovery(self)
 
     def persist(self, session: Session) -> None:
         try:
@@ -125,16 +128,21 @@ class Manager:
             raise Unavailable("service_not_found")
         kind = service.input_kind if service else request.input_kind
         source_id = service.source_id if service else request.source_id
-        if kind == InputKind.live:
-            raise Unavailable("live_not_implemented")
         source = (
-            self.synthetic_source(source_id)
+            self.live_source(
+                source_id,
+                LiveProfile.from_service(service.profile)
+                if service and "channel" in service.profile
+                else None,
+            )
+            if kind == InputKind.live
+            else self.synthetic_source(source_id)
             if kind == InputKind.synthetic
             else self.settings.saved_sources.get(source_id)
         )
         if source is None:
             raise Unavailable("source_not_registered")
-        if not source.path.is_file():
+        if source.live_id is None and not source.path.is_file():
             raise Unavailable("source_missing")
         if shutil.disk_usage(self.settings.data_dir).free < self.settings.min_free_bytes:
             raise Conflict("storage_full")
@@ -142,6 +150,7 @@ class Manager:
             id=uuid4(),
             request_id=request.request_id,
             input_kind=kind,
+            restore=Restore.pending if kind == InputKind.live else Restore.not_required,
             source_id=source_id,
             service=service,
             selected_service_id=service.service_id if service else request.selected_service_id,
@@ -167,11 +176,31 @@ class Manager:
         self.stop_reason = EndReason.requested
         deadline = self.clock() + request.duration_seconds
         self.deadlines[session.id], self.sources[session.id] = deadline, source
-        adapter = self.adapter_factory(source)
+        adapter: Adapter
+        if kind == InputKind.live:
+            assert self.device.fd is not None
+            adapter = LiveAdapter(
+                self.settings,
+                source,
+                self.settings.data_dir / "native" / str(session.id),
+                request.duration_seconds,
+                self.device.fd,
+            )
+        else:
+            adapter = self.adapter_factory(source)
         if isinstance(adapter, FileAdapter):
             adapter.lock_fd = self.device.fd
         self.task = asyncio.create_task(self.run(session, adapter, deadline))
         return session
+
+    def live_source(self, source_id: str, profile: LiveProfile | None = None) -> Source:
+        if not self.settings.live or not self.settings.device_lock_dir:
+            raise Unavailable("live_not_configured")
+        if profile is None and source_id not in self.settings.live.profiles:
+            raise Unavailable("source_not_registered")
+        return Source(
+            self.settings.live.config_path, 18_000_000, live_id=source_id, live_profile=profile
+        )
 
     def synthetic_source(self, source_id: str) -> Source | None:
         if source_id == "demo":
@@ -183,12 +212,14 @@ class Manager:
             )
         return None
 
-    def check_idle(self) -> None:
+    def check_idle(self, *, ignore_restore: bool = False) -> None:
         if self.storage_failed:
             raise Unavailable("database_error")
-        if any(
-            s.restore in {Restore.pending, Restore.unknown, Restore.failed}
-            for s in self.sessions.values()
+        if self.recovery.task and not self.recovery.task.done():
+            raise Conflict("device_busy")
+        if not ignore_restore and (
+            self.recovery.required()
+            or any(s.restore == Restore.pending for s in self.sessions.values())
         ):
             raise Conflict("restore_unverified")
         if self.recordings.active:
@@ -206,6 +237,8 @@ class Manager:
 
     def remaining(self, session: Session) -> float:
         source = self.sources[session.id]
+        if source.live_id is not None:
+            return self.deadlines[session.id] - self.clock()
         source_remaining = (
             max(0, source.path.stat().st_size - session.bytes_received) * 8 / source.bitrate
         )
@@ -256,6 +289,7 @@ class Manager:
         )
         read_task: asyncio.Task[bytes] | None = None
         stop_task: asyncio.Task[bool] | None = None
+        last_metrics = 0.0
         try:
             directory.mkdir(parents=True)
             await asyncio.wait_for(adapter.start(), min(START_GRACE, session.duration_seconds))
@@ -320,6 +354,9 @@ class Manager:
                         session.ts_started_at = now()
                     digest.update(data)
                     session.bytes_received += len(data)
+                    if isinstance(adapter, LiveAdapter) and self.clock() - last_metrics >= 1:
+                        session.receiver_metrics = adapter.metrics()
+                        last_metrics = self.clock()
                     session.stage = Stage.transport
         except TimeoutError:
             reason = EndReason.startup_timeout
@@ -334,6 +371,8 @@ class Manager:
             # Deliberately keep subprocess/configuration details out of HTTP and logs.
             reason = EndReason.worker_failed
         finally:
+            if isinstance(adapter, LiveAdapter):
+                adapter.request_stop()
             for task in (read_task, stop_task):
                 if task and not task.done():
                     task.cancel()
@@ -352,7 +391,13 @@ class Manager:
             failure_stage = session.stage
             session.stage = Stage.cleanup
             try:
-                session.restore = await asyncio.wait_for(adapter.stop(), STOP_GRACE)
+                session.restore = await asyncio.wait_for(
+                    adapter.stop(), 23 if isinstance(adapter, LiveAdapter) else STOP_GRACE
+                )
+                if isinstance(adapter, LiveAdapter) and adapter.failed:
+                    reason = EndReason.worker_failed
+                if isinstance(adapter, LiveAdapter):
+                    session.receiver_metrics = adapter.metrics()
             except FileWorkerFailed:
                 session.restore = Restore.not_required
                 # Preserve an earlier input/storage failure and its diagnostic stage.
@@ -433,6 +478,7 @@ class Manager:
                 self.stop_reason = EndReason.server_shutdown
                 self.stop_event.set()
                 await self.task
+            await self.recovery.close()
             await self.scans.close()
             await self.recordings.close()
         finally:

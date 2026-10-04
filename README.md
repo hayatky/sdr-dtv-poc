@@ -1,18 +1,25 @@
 # sdr-dtv-poc
 
 日本の地上波をSDRで受信し、WebUIからスキャン・選局・視聴・短いTS録画を行う
-実験的なPoCです。段階2まで完了し、**合成TSを使うAPIとWebUIの接続**を実装済みです。
+実験的なPoCです。合成TSに加え、UHF全範囲（13〜52ch）の実機スキャンと、検出した局の視聴・録画を実装しました。
 WebUIから診断、合成13・14chのスキャン、保存した局の選局、HLSの視聴、最大300秒の
 手動TS録画、録画の再生とオリジナルTSのダウンロードを操作できます。
-実機入力と外部CASは未接続です。合成TSの成功を実機での受信成功とは扱いません。
+実機用のローカルDocker Composeでは、固定した研究元の受信処理と外部CASを使います。
+[導入・停止手順](docs/live-receiver.md)と[実機を含む検証記録](docs/issue-5-validation.md)を参照してください。
+USB切断後に視聴できない場合は、[WebUIで復旧する手順](docs/recovery.md)を参照してください。
+Safariでの両チャンネルの視聴・録画再生はユーザー確認済みです。
+その際の画質改善要望を受け、映像8 Mbps・最大12 Mbpsへ変更し、録画の手動削除を追加しました。
+周期的な映像ノイズとTS欠落は[Issue #37](https://github.com/hayatky/sdr-dtv-poc/issues/37)で
+比較・修正し、変更後の主観的な画質を確認します。反復USB切断後の機器確認と復旧も残っています。
 
 [Issue #29の実装と引継ぎ](docs/issue-29-handoff.md)、
 [UI接続の検証記録](docs/issue-29-validation.md)を参照してください。
 全体の進捗は[Issue #2](https://github.com/hayatky/sdr-dtv-poc/issues/2)で管理します。
 PR #34はmainの`dd60fb2`へ統合済みで、#4・#18・#29は完了しました。
-次は[段階3のIssue #5](https://github.com/hayatky/sdr-dtv-poc/issues/5)です。
-[着手手順と残る作業](docs/issue-5-handoff.md)に従い、まず#19の合成入力による全体検証と
-#20の先行成果の照合を進めます。実機での検証は、この二つの成果を確認してから開始します。
+進行中の[段階3のIssue #5](https://github.com/hayatky/sdr-dtv-poc/issues/5)は、
+#19の合成入力と#20の別チャンネルの先行確認を経て、実機での検証へ進みました。
+[現在の引継ぎと残作業](docs/issue-5-handoff.md)を参照してください。
+#19・#20の成果は受け入れ済みで、#21〜#23と#37を確認してから親#5の完了を判定します。
 
 ## Docker Composeで合成デモを起動
 
@@ -107,8 +114,9 @@ sh scripts/check.sh
 [段階2の検証・UIへの引継ぎ](docs/issue-4-backend-validation.md)を参照してください。
 GitHub Actionsは無効のままです。ローカルの検証成功をCI実行成功とは記載しません。
 
-研究元の実機成果と、このPoCの合成デモの成功は別です。実機への到達性・RX復元、
-実機でのライブ再生・録画、macOS/WindowsのDocker Desktop、Safariでの再生は未検証です。
+研究元の実機成果、PoCの合成デモ、実機での視聴・録画は別の根拠として記録します。
+macOS/WindowsのDocker Desktopで受信バックエンドを動かすことは未検証です。
+Safariの確認は、Ubuntuで動くバックエンドへSSH転送で接続した結果です。
 受信処理の自作wrapper等の配布条件も確認が必要で、既定imageに同梱していません。
 
 ## License

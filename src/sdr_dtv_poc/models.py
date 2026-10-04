@@ -10,7 +10,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SESSION_LIMIT = 600
-SCAN_LIMIT = 180
+SCAN_LIMIT = 1200
 START_GRACE = 15
 STOP_GRACE = 5
 RECORDING_LIMIT = 300
@@ -96,6 +96,7 @@ class Session(BaseModel):
     selected_service_id: int = 1
     ts_started_at: str | None = None
     hls: MediaStatus | None = None
+    receiver_metrics: dict[str, float | int | str] = Field(default_factory=dict)
 
 
 class Error(BaseModel):
@@ -162,7 +163,7 @@ class Service(BaseModel):
     transport_stream_id: int | None = None
     remote_control_key_id: int | None = None
     detected_at: str | None = None
-    profile: dict[str, str | int] = Field(default_factory=dict)
+    profile: dict[str, str | int | float | bool] = Field(default_factory=dict)
     current_reception: bool = False
 
 
@@ -176,6 +177,7 @@ class MediaStatus(BaseModel):
 
 
 class ScanResult(BaseModel):
+    error_code: str | None = None
     physical_channel: int
     frequency_hz: int
     state: str = "not_run"
@@ -219,9 +221,12 @@ class Recording(BaseModel):
     artifact_id: UUID | None = None
     download_url: str | None = None
     file_available: bool = False
+    deletion_pending: bool = False
+    deleted_at: str | None = None
 
 
 class Playback(MediaStatus):
+    encoding_profile: str | None = None
     id: UUID
     recording_id: UUID
     started_at: str

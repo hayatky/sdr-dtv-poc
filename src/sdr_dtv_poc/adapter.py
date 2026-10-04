@@ -1,9 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import asyncio
+import json
+import os
+import signal
 import sys
-from typing import Protocol
+from dataclasses import asdict
+from pathlib import Path
+from typing import BinaryIO, Protocol
 
-from .config import Source
+from .config import Settings, Source
 from .models import STOP_GRACE, Restore
 
 
@@ -64,3 +69,102 @@ class FileAdapter:
             if forced or self.process.returncode != 0:
                 raise FileWorkerFailed("worker_failed")
         return Restore.not_required
+
+
+class LiveWorkerFailed(Exception):
+    pass
+
+
+class LiveAdapter:
+    worker_module = "sdr_dtv_poc.live_worker"
+
+    def __init__(
+        self, settings: "Settings", source: Source, directory: "Path", seconds: int, lock_fd: int
+    ):
+        self.settings, self.source, self.directory = settings, source, directory
+        self.seconds, self.lock_fd = seconds, lock_fd
+        self.process: asyncio.subprocess.Process | None = None
+        self.log: BinaryIO | None = None
+        self.failed = False
+        self.collect_service_info = False
+
+    async def start(self) -> None:
+        assert self.settings.live and self.settings.device_lock_dir
+        self.directory.mkdir(parents=True, exist_ok=True)
+        profile_args: list[str] = []
+        if self.source.live_profile is not None:
+            profile_path = self.directory / "profile.json"
+            profile_path.write_text(json.dumps(asdict(self.source.live_profile)))
+            profile_args = ["--profile", str(profile_path)]
+        if self.collect_service_info:
+            profile_args.append("--service-info")
+        self.log = (self.directory / "supervisor.log").open("xb")
+        self.process = await asyncio.create_subprocess_exec(
+            str(self.settings.live.native_python),
+            "-m",
+            self.worker_module,
+            str(self.settings.live.config_path),
+            str(self.source.live_id),
+            str(self.directory),
+            str(self.settings.device_lock_dir),
+            str(self.lock_fd),
+            str(self.seconds),
+            *profile_args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=self.log,
+            pass_fds=(self.lock_fd,),
+            start_new_session=True,
+        )
+
+    async def read(self) -> bytes:
+        assert self.process and self.process.stdout
+        data = await self.process.stdout.read(188 * 7)
+        if not data and await self.process.wait() != 0:
+            self.failed = True
+            raise LiveWorkerFailed("live_worker_failed")
+        return data
+
+    def request_stop(self) -> None:
+        if self.process and self.process.stdin:
+            self.process.stdin.close()
+
+    def metrics(self) -> dict[str, float | int | str]:
+        try:
+            result: dict[str, float | int | str] = json.loads(
+                (self.directory / "live-progress.json").read_text()
+            )
+            return result
+        except (OSError, ValueError):
+            return {}
+
+    async def stop(self) -> Restore:
+        forced = False
+        drain: asyncio.Task[None] | None = None
+        if self.process:
+            self.request_stop()
+
+            async def discard_tail() -> None:
+                assert self.process and self.process.stdout
+                while await self.process.stdout.read(65536):
+                    pass
+
+            drain = asyncio.create_task(discard_tail())
+            if self.process.returncode is None:
+                try:
+                    await asyncio.wait_for(self.process.wait(), 20)
+                except TimeoutError:
+                    forced = True
+                    os.killpg(self.process.pid, signal.SIGKILL)
+                    await self.process.wait()
+            self.failed = forced or self.process.returncode != 0
+        if drain:
+            await drain
+        if self.log:
+            self.log.close()
+        result = self.directory / "live-result.json"
+        if forced or not result.is_file():
+            return Restore.unknown
+        record = json.loads(result.read_text())
+        self.failed = self.failed or bool(record.get("errors"))
+        return Restore(record["restore"])

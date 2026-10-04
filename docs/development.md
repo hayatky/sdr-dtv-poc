@@ -162,3 +162,12 @@ uv run --no-project --python 3.12 --with playwright==1.58.0 \
 `tests/webui-lifecycle.js`の通信・プレイヤーの回帰試験もこのスクリプトがChromium内で実行します。
 Playwrightは補助ツールとして一時環境で使い、製品依存やコンテナへ追加しません。
 通常の`sh scripts/check.sh`はChromiumを起動しないため、この結果とは別に記録してください。
+
+## 実機用Composeの検証（段階3）
+
+通常の共通検査は実機へ接続しません。実機用の固定ソース、専用ホスト準備、
+非rootコンテナ、有限時間の試験と終了手順は[live-receiver.md](live-receiver.md)、
+成功・失敗・未実行の区別は[issue-5-validation.md](issue-5-validation.md)を参照してください。
+研究元のPythonソースは`prepare-live.py`でGitオブジェクトから別途抽出し、起動時もhashを確認します。
+native imageの共有ライブラリはこのPythonファイルのhash照合には含まれないため、
+既存の固定ビルド手順とimage ID・package記録を併用します。

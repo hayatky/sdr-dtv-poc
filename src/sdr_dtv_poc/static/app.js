@@ -35,6 +35,7 @@
     {key: 'storage', label: '保存先の空き容量'},
     {key: 'demo_source', label: '合成テスト信号のファイル', only: 'synthetic'},
     {key: 'ffmpeg', label: '映像の変換（FFmpeg）'},
+    {key: 'service_information', label: '局名の取得', only: 'live'},
     {key: 'board', label: '受信ボード'},
     {key: 'native_receiver', label: '受信処理のプログラム'},
     {key: 'card', label: 'B-CASカード'},
@@ -53,6 +54,7 @@
     storage: '保存先の空き容量を増やしてから、もう一度確認してください。',
     demo_source: 'READMEの手順で合成テスト信号のファイルを作成してください。',
     ffmpeg: 'FFmpegを導入してから、もう一度確認してください。',
+    service_information: '局名を読み取るTSDuckが必要です。実機用イメージを更新してから、もう一度確認してください。',
     board: 'この項目は自動では確認していません。受信を始めたときの状態表示で確認します。',
     native_receiver: 'この項目は自動では確認していません。受信処理の導入手順を確認してください。',
     card: 'カードの差し込みと向きを確認してから、もう一度確認してください。',
@@ -61,7 +63,7 @@
 
   const ERRORS = {
     network_error: ['サーバーと通信できません', '自動的に再接続を試みます。続く場合はサーバーが起動しているか確認してください。'],
-    restore_unverified: ['受信機の設定を元に戻せたか確認できていません', '受信機の状態を確認して復旧の記録を残すまで、新しい受信とスキャンは開始できません。'],
+    restore_unverified: ['受信機の設定を元に戻せたか確認できていません', '受信機の状態を確認し、画面に表示された復旧操作を行うまで、新しい受信とスキャンは開始できません。'],
     storage_full: ['保存先の空き容量が足りません', '空き容量を増やしてから、接続の確認をやり直してください。'],
     session_busy: ['ほかの受信が動いています', '先に受信を停止してから操作してください。'],
     scan_active: ['スキャン中です', 'スキャンが終わるのを待つか、中止してから操作してください。'],
@@ -73,6 +75,8 @@
     source_missing: ['入力ファイルが見つかりません', '接続の確認で入力ファイルの状態を確認してください。'],
     source_not_registered: ['入力ファイルが登録されていません', '管理者が保存TSの設定を確認してください。'],
     database_error: ['サーバーの記録に失敗しました', '時間をおいてから、もう一度お試しください。'],
+    recording_delete_failed: ['録画ファイルの削除が完了しませんでした', '保存先の権限や状態を確認し、削除を再試行してください。'],
+    recording_deleted: ['この録画は削除されています', '録画一覧を更新してください。'],
     session_history_limit: ['受信の履歴が上限に達しました', '管理者が保存データを整理するまで、新しい受信は開始できません。'],
     feature_not_implemented: ['この機能はまだ使えません', '後続の実装を待ってください。'],
   };
@@ -83,6 +87,10 @@
     scan_busy: ERRORS.scan_active, recording_busy: ERRORS.recording_active,
     insufficient_session_time: ['録画に必要な入力の残り時間が足りません', '5分録画には停止猶予を含む305秒の残量が必要です。受信を停止して選局し直してください。'],
     device_busy: ['別の処理が受信機を使用しています', '使用中の処理を確認してください。自動では停止しません。'],
+    board_unreachable: ['受信機に接続できません', 'USBを差し直して10秒待ってから、もう一度お試しください。同じエラーなら、Ubuntu側の復旧手順（docs/recovery.md）を確認してください。'],
+    settings_changed: ['受信機の設定を確認できません', '保存していた基準値と現在の設定が一致しません。受信を開始せず、機器と設定を確認してから再試行してください。'],
+    recovery_evidence_missing: ['復旧の確認記録を作成できません', '復旧結果を確認できる記録がありません。受信を開始せず、管理者が復旧状態を確認してください。'],
+    recovery_failed: ['受信機の復旧に失敗しました', 'USBの接続とホスト側の準備を確認してから、もう一度お試しください。'],
     playback_busy: ['別の録画を再生する準備中です', '準備が終わるまでお待ちください。'],
     recording_incomplete: ['録画が完了していません', '途中終了した録画は再生できません。'],
     recording_file_missing: ['録画ファイルがありません', '管理者が保存先を確認してください。'],
@@ -105,6 +113,9 @@
   };
 
   const SCAN_STAGES = {
+    searching_tmcc: '放送方式を調べています', tmcc_detected: '放送方式を検出',
+    unsupported_tmcc: '検出した放送方式には未対応', unstable_tmcc: '放送方式を安定して確認できませんでした',
+    no_service: '放送方式を検出しましたが局情報を取得できませんでした',
     detected: 'TSの番組情報を検出', not_detected: '今回未検出', not_run: '未実行',
     none: '信号なし',
     signal: '信号のみ検出（番組情報は未確認）',
@@ -126,6 +137,7 @@
 
   const SCAN_PRESETS = [
     {id: 'synthetic', label: '合成TSのプリセット'},
+    {id: 'live', label: '実機の登録済みチャンネル'},
     {id: 'all', label: 'UHFの全範囲（13〜52ch）', from: 13, to: 52},
     {id: 'low', label: '低い側（13〜32ch）', from: 13, to: 32},
     {id: 'high', label: '高い側（33〜52ch）', from: 33, to: 52},
@@ -181,16 +193,16 @@
     tab: initialTab, bootstrap: null, suspended: false, mutating: false, mediaEpoch: 0,
     playback: null, playbackPlayer: {phase: 'none'}, globalError: null,
     conn: {status: 'loading', lastOkAt: null},
-    system: null,
+    system: null, recovery: null, recoveryChecked: false, recoveryAction: false, recoveryError: null, recoveryNotice: false,
     announce: '',
     diag: {inputKind: 'synthetic', phase: 'idle', result: null, checkedAt: null, error: null},
-    scanForm: {preset: api.demo ? 'all' : 'synthetic', from: 13, to: 52},
+    scanForm: {preset: api.demo ? 'all' : 'synthetic', from: 13, to: 52, inputSelected: false},
     scan: {current: null, pending: false, error: null},
     services: {items: [], loaded: false},
     watch: {targetRef: null, session: null, action: null, error: null, confirmStop: false},
     player: {phase: 'none', sessionId: null},
     rec: {current: null, last: null, pending: false, error: null},
-    recordings: {items: [], loaded: false, playing: null, notice: null},
+    recordings: {items: [], loaded: false, playing: null, notice: null, deleteId: null},
   });
 
   const refs = {};
@@ -227,7 +239,16 @@
   // ---------- derived state ----------
 
   const offline = () => state.conn.status !== 'ok';
-  const restoreBlocked = () => ['unknown', 'failed'].includes(state.system?.restore) || ['unknown', 'failed'].includes(session()?.restore) || ['unknown', 'failed'].includes(state.scan.current?.restore) || [state.watch.error, state.scan.error, state.rec.error].includes('restore_unverified');
+  const recoveryVisible = () => !api.demo && state.recovery &&
+    (Boolean(state.recovery.required) || ['running', 'failed'].includes(state.recovery.state) || state.recoveryAction);
+  const recoveryRunning = () => Boolean(state.recoveryAction) || state.recovery?.state === 'running';
+  const recoveryGate = () => !api.demo && Boolean(state.recovery?.required);
+  const restoreBlocked = () => {
+    // The recovery endpoint is authoritative for the live device gate. Session
+    // and scan history may retain an old restore value after a successful run.
+    if (!api.demo && state.recovery) return recoveryGate() || recoveryRunning();
+    return ['unknown', 'failed'].includes(state.system?.restore) || ['unknown', 'failed'].includes(session()?.restore) || ['unknown', 'failed'].includes(state.scan.current?.restore) || [state.watch.error, state.scan.error, state.rec.error].includes('restore_unverified');
+  };
   const storageLow = () => state.diag.result?.checks?.storage?.status === 'failed' || (state.system?.storage && !state.system.storage.ok);
   const recording = () => state.rec.current && state.rec.current.state === 'running';
   const session = () => state.watch.session;
@@ -271,11 +292,27 @@
     return null;
   }
 
+  function selectInput(kind) {
+    Object.assign(state.diag, {inputKind: kind, result: null, phase: 'idle', error: null});
+    state.scanForm.inputSelected = true;
+    if (!api.demo) state.scanForm.preset = kind === 'live' ? 'all' : 'synthetic';
+  }
+
+  function scanPresets() {
+    if (api.demo) return SCAN_PRESETS.filter(p => !['synthetic', 'live'].includes(p.id));
+    if (state.diag.inputKind === 'saved_ts') return [];
+    return SCAN_PRESETS.filter(p => state.diag.inputKind === 'live' ? p.id !== 'synthetic' : p.id !== 'live');
+  }
+
   function scanRange() {
     const f = state.scanForm;
-    if (f.preset === 'synthetic') {
-      const channels = state.bootstrap?.scan_presets?.synthetic || [];
-      return {ok: channels.length > 0, channels, from: channels[0], to: channels.at(-1), message: '接続情報を取得しています。'};
+    if (!api.demo && state.diag.inputKind === 'saved_ts') {
+      return {ok: false, message: '保存TSからのスキャンには現在対応していません。入力元を実機ライブまたは合成TSへ変更してください。'};
+    }
+    if (!scanPresets().some(p => p.id === f.preset)) return {ok: false, message: '入力元と調べる範囲を選び直してください。'};
+    if (f.preset === 'synthetic' || f.preset === 'live') {
+      const channels = state.bootstrap?.scan_presets?.[f.preset] || [];
+      return {ok: channels.length > 0, channels, from: channels[0], to: channels.at(-1), message: state.bootstrap ? 'この入力元のチャンネルが登録されていません。' : '接続情報を取得しています。'};
     }
     const preset = SCAN_PRESETS.find(p => p.id === f.preset);
     const from = preset.id === 'custom' ? Number(f.from) : preset.from;
@@ -308,7 +345,7 @@
   }
   function schedule() {
     clearTimeout(timer);
-    if (pageHidden || state.mutating) return;
+    if (pageHidden || (state.mutating && !state.recoveryAction)) return;
     const busy = sessionActive() || scanning() || recording() || state.recordings.playing;
     timer = setTimeout(refresh, offline() || !busy ? 5000 : 1000);
   }
@@ -325,8 +362,21 @@
     if (api.demo && next?.health?.hls === 'ok') state.player = {
       phase: api.demo.playerWillFail() ? 'failed' : 'showing', sessionId: next.id};
   }
+  function clearRecoveryUi() {
+    state.recoveryError = null;
+    state.recoveryNotice = true;
+    if (state.globalError === 'restore_unverified') state.globalError = null;
+    for (const target of [state.watch, state.scan, state.rec]) {
+      if (target.error === 'restore_unverified') {
+        target.error = null;
+        target.recovery = null;
+      }
+    }
+    state.recoveryChecked = false;
+    say('受信機の復旧を確認しました。新しい受信は自動で開始していません。');
+  }
   async function refresh() {
-    if (polling || pageHidden || state.mutating) return;
+    if (polling || pageHidden || (state.mutating && !state.recoveryAction)) return;
     polling = true; clearTimeout(timer);
     const own = epoch;
     try {
@@ -335,7 +385,14 @@
         api.status(), api.services(), api.demo ? api.recordings() : Promise.resolve(null)]);
       if (!valid(own)) return;
       state.bootstrap = boot;
+      if (!api.demo && !state.scanForm.inputSelected) selectInput(boot.live_available ? 'live' : 'synthetic');
       state.system = status;
+      const previousRecovery = state.recovery;
+      state.recovery = status.recovery || null;
+      if (state.recovery?.error_code) state.recoveryError = state.recovery.error_code;
+      else if (state.recovery?.state === 'completed' && !state.recovery.required) state.recoveryError = null;
+      else if (!state.recovery?.required && state.recovery?.state !== 'failed') state.recoveryError = null;
+      if (state.recovery?.state === 'completed' && !state.recovery.required && previousRecovery?.state !== 'completed') clearRecoveryUi();
       state.services = {items: services, loaded: true};
       state.recordings.items = recordings || status.recordings;
       state.recordings.loaded = true;
@@ -409,6 +466,36 @@
       }
     }
   }
+  async function recoverReceiver() {
+    if (api.demo || state.mutating || !state.recoveryChecked || !recoveryVisible()) return;
+    const own = ++epoch;
+    state.mutating = true;
+    state.recoveryAction = true;
+    state.recoveryChecked = false;
+    state.recoveryError = null;
+    clearTimeout(timer); api.cancel();
+    if (state.recovery) state.recovery = {...state.recovery, state: 'running', error_code: null, required: true};
+    try {
+      const result = await api.recoverReceiver();
+      if (!valid(own)) return;
+      state.recovery = result;
+      state.recoveryError = result.error_code || null;
+      if (result.state === 'completed' && !result.required) clearRecoveryUi();
+      else if (result.state === 'running') say('受信機を確認して復旧しています。完了までお待ちください。');
+      else if (result.state === 'failed') say(errorText(result.error_code || 'recovery_failed')[0]);
+    } catch (error) {
+      if (valid(own)) {
+        state.recoveryError = error.code;
+        if (state.recovery) state.recovery = {...state.recovery, state: 'failed', error_code: error.code, required: true};
+        noteError(error); say(errorText(error.code)[0]);
+      }
+    } finally {
+      if (own === epoch) {
+        state.mutating = false; state.recoveryAction = false;
+        if (!pageHidden) { refresh(); schedule(); }
+      }
+    }
+  }
   async function runDiagnostics() {
     const own = epoch, kind = state.diag.inputKind;
     state.diag.phase = 'running'; state.diag.error = null;
@@ -423,7 +510,8 @@
   function startScan() {
     const range = scanRange();
     if (!range.ok || blockReason('scan')) return;
-    return mutate(state.scan, () => api.startScan(range.channels, api.newRequestId()), next => { state.scan.current = next; });
+    const kind = state.diag.inputKind;
+    return mutate(state.scan, () => api.startScan(range.channels, api.newRequestId(), kind), next => { state.scan.current = next; });
   }
   function stopScan() {
     if (!state.scan.current) return;
@@ -471,6 +559,16 @@
     resetPlayer(); state.playback = null; state.recordings.playing = rec.id;
     return mutate(state.recordings, () => api.startPlayback(rec.id), next => {
       if (state.recordings.playing === rec.id) state.playback = next;
+    });
+  }
+
+  function deleteRecording(rec) {
+    if (active(rec) || state.recordings.playing === rec.id || state.mutating) return;
+    return mutate(state.recordings, () => api.deleteRecording(rec.id), () => {
+      state.recordings.items = state.recordings.items.filter(r => r.id !== rec.id);
+      state.recordings.deleteId = null;
+      state.recordings.notice = '録画と再生用ファイルを削除しました。';
+      say(state.recordings.notice);
     });
   }
 
@@ -560,6 +658,44 @@
     const [title, body] = errorText(code);
     return notice('danger', title, body);
   }
+  function recoveryFailureGuidance(code) {
+    if (code === 'board_unreachable') return [
+      'USBを差し直して10秒待ってから、もう一度お試しください。同じエラーなら、Ubuntu側でこのアプリのフォルダーに移動し、',
+      el('code', null, 'uv run --locked python scripts/live-start.py data/live.env'),
+      ' を実行してから再試行してください。詳しい手順は docs/recovery.md を確認してください。',
+    ];
+    if (code === 'device_busy') return '別の処理が受信機を使用しています。ほかの受信処理が終わるまで待ってから再試行してください。自動では停止しません。';
+    if (code === 'settings_changed') return '保存していた基準値と現在の設定が一致しません。再試行せず、受信機の設定を確認してください。';
+    if (code === 'recovery_evidence_missing') return '復旧の確認記録がありません。受信を開始せず、管理者が復旧状態を確認してください。';
+    if (code === 'database_error') return '復旧結果を保存できませんでした。復旧できたと判断せず、サーバーと保存先を確認してから再試行してください。';
+    if (code === 'recovery_failed') return 'USBの接続とホスト側の準備を確認してから、もう一度お試しください。';
+    return code ? errorText(code)[1] : null;
+  }
+  function renderRecoveryPanel() {
+    if (!recoveryVisible()) return null;
+    const running = recoveryRunning();
+    const code = state.recoveryError || state.recovery?.error_code;
+    const title = running ? '受信機を確認して復旧しています…'
+      : code ? errorText(code)[0] : '受信機の復旧が必要です';
+    const body = running
+      ? '最大30秒で受信機の設定を確認して元に戻します。新しい受信やスキャンは自動で開始しません。'
+      : '前回の受信後に、受信機の設定を元に戻せたか確認できませんでした。サーバーを再起動するだけでは、視聴・スキャンの制限は解除されません。';
+    return el('section', {class: ['notice', 'tone-danger'], role: 'alert', 'aria-labelledby': 'recovery-title'},
+      el('p', {class: 'notice-title', id: 'recovery-title'}, title),
+      el('p', null, body),
+      code && !running ? el('p', {class: 'hint'}, recoveryFailureGuidance(code)) : null,
+      !running ? el('ol', {class: 'recovery-steps'},
+        el('li', null, '受信機に異常な発熱がないことを確認してください。異常があれば操作を止めてください。'),
+        el('li', null, 'ボードのSLAVE端子につながるUSBケーブルをいったん抜いて差し直してください。RFケーブルは接続したままにしてください。'),
+        el('li', null, '確認欄にチェックを入れて、「受信機を確認して復旧する」を押してください。')) : null,
+      !running ? el('label', {class: 'radio'},
+        el('input', {type: 'checkbox', checked: state.recoveryChecked, disabled: state.mutating,
+          onChange: event => { state.recoveryChecked = event.target.checked; }}),
+        '異常な発熱がないこととUSBの接続を確認しました') : null,
+      el('div', {class: 'actions'}, button(running ? '復旧しています…' : '受信機を確認して復旧する', recoverReceiver,
+        {kind: 'primary', disabled: running || state.mutating || !state.recoveryChecked})),
+    );
+  }
   function button(label, onClick, options) {
     const o = options || {};
     return el('button', {
@@ -632,8 +768,7 @@
 
   function renderDemoBanner() {
     const demo = api.demo;
-    if (!demo) return notice('info', '合成TSを使う動作確認',
-      '自作のテスト映像と音声を再生・録画します。実機での受信は未対応です。受信や録画はボタンを押したときだけ開始します。');
+    if (!demo) return null;
     return el('section', {class: 'demo-banner', 'aria-labelledby': 'demo-title'},
       el('p', {class: 'demo-title', id: 'demo-title'}, '◆ 表示確認用のデモです'),
       el('p', null, '画面に出る局・映像・録画はすべて架空の模擬データです。受信・録画・ファイルの保存は行っていません。'),
@@ -653,6 +788,13 @@
   function renderGlobalNotices() {
     const list = [];
     if (state.globalError) list.push(errorNotice(state.globalError));
+    if (state.recoveryNotice && !restoreBlocked()) list.push(notice('ok', '受信機の復旧が完了しました',
+      '視聴タブで局を選ぶと受信を再開できます。録画は自動再開しません。', [
+        button('視聴タブを開く', () => { state.recoveryNotice = false; setTab('watch', true); }, {kind: 'primary'}),
+        button('閉じる', () => { state.recoveryNotice = false; }, {kind: 'secondary'}),
+      ]));
+    const recoveryPanel = renderRecoveryPanel();
+    if (recoveryPanel) list.push(recoveryPanel);
     if (offline()) {
       list.push(notice('danger', 'サーバーと通信できません',
         `自動的に再接続を試みています。${state.conn.lastOkAt
@@ -660,9 +802,9 @@
           : 'まだサーバーから情報を取得できていません。'}録画中だった場合も、録画はサーバー側の期限で停止します。`,
         [button('今すぐ再接続する', refresh, {kind: 'secondary'})]));
     }
-    if (restoreBlocked()) {
+    if (restoreBlocked() && !recoveryPanel) {
       list.push(notice('danger', '受信機の設定を元に戻せたか確認できていません',
-        '前回の受信の後、受信機の設定を元に戻せたかを確認できませんでした。安全のため、確認が済むまで新しい受信とスキャンは開始できません。受信機の状態を確認し、復旧の記録を残してください。'));
+        '前回の受信の後、受信機の設定を元に戻せたかを確認できませんでした。安全のため、確認が済むまで新しい受信とスキャンは開始できません。受信機の状態を確認してから、接続を確認し直してください。'));
     }
     if (storageLow()) {
       list.push(notice('warn', '保存先の空き容量が足りません',
@@ -681,11 +823,11 @@
       el('h3', {id: 'diag-title'}, '1. 接続を確認する'),
       el('p', null, '受信を始める前に、必要な機器とプログラムがそろっているかを確認します。この確認では受信を開始しません。'),
       el('fieldset', {class: 'choice'},
-        el('legend', null, '確認する入力元'),
+        el('legend', null, '接続確認・スキャンの入力元'),
         Object.entries(INPUT_KINDS).map(([kind, info]) => el('label', {class: 'radio'},
           el('input', {type: 'radio', name: 'diag-input', value: kind, checked: d.inputKind === kind,
-            disabled: !api.demo && kind === 'live' && !state.bootstrap?.live_available,
-            onChange: () => { Object.assign(d, {inputKind: kind, result: null, phase: 'idle', error: null}); }}),
+            disabled: scanning() || state.scan.pending || (!api.demo && kind === 'live' && !state.bootstrap?.live_available),
+            onChange: () => selectInput(kind)}),
           info.long))),
       el('div', {class: 'actions'},
         button(d.phase === 'running' ? '確認しています…' : '接続を確認する', runDiagnostics, {kind: 'primary', disabled: d.phase === 'running' || offline()})),
@@ -711,8 +853,9 @@
   function scanResult(scan) {
     const found = scan.found_services;
     const kept = '以前に保存した局の一覧はそのまま残しています。';
+    const check = scan.input_kind === 'live' ? '受信ボードの接続・RF配線と、登録した受信設定' : '入力ファイルとスキャンの範囲';
     if (scan.state === 'failed') {
-      return {tone: 'danger', title: 'スキャンを完了できませんでした', body: `理由：${END_REASONS[scan.end_reason] || '不明'}。${kept}入力ファイルと接続診断の結果を確認してから、もう一度お試しください。`};
+      return {tone: 'danger', title: 'スキャンを完了できませんでした', body: `理由：${END_REASONS[scan.end_reason] || '不明'}。${kept}${check}を確認してから、もう一度お試しください。`};
     }
     if (scan.state === 'interrupted') {
       return {tone: 'warn', title: 'サーバーの再起動でスキャンが中断されました', body: `${kept}もう一度スキャンしてください。`};
@@ -721,10 +864,10 @@
       return {tone: 'info', title: 'スキャンを中止しました', body: `${kept}中止までに検出して保存した局も一覧へ反映します。`};
     }
     if (scan.end_reason === 'deadline') {
-      return {tone: 'warn', title: '時間内にすべてのチャンネルを調べられませんでした', body: `スキャンは最大3分です。範囲を狭めて、もう一度お試しください。${kept}`};
+      return {tone: 'warn', title: '時間内にすべてのチャンネルを調べられませんでした', body: `スキャンの時間上限に達しました。未実行のチャンネルを含む範囲を選び、もう一度お試しください。${kept}`};
     }
     if (!found) {
-      return {tone: 'warn', title: '局が見つかりませんでした', body: `${kept}入力ファイルとスキャンの範囲を確認してから、もう一度お試しください。`};
+      return {tone: 'warn', title: '局が見つかりませんでした', body: `${kept}${check}を確認してから、もう一度お試しください。`};
     }
     return {tone: 'ok', title: `スキャンが終わりました。${found}局を保存しました。`, body: '視聴タブで局を選ぶと受信を始めます。'};
   }
@@ -738,11 +881,14 @@
     const reason = running ? null : blockReason('scan');
     return el('section', {class: 'panel', 'aria-labelledby': 'scan-title'},
       el('h3', {id: 'scan-title'}, '2. 局を探す（スキャン）'),
-      el('p', null, '合成TSから局を探します。チャンネルは架空の割当てで、電波の検出ではありません。最大3分で終了します。'),
+      el('p', null, !api.demo && state.diag.inputKind === 'live'
+        ? '選んだ範囲を実機で順に受信し、チャンネルごとの放送方式と局を調べて保存します。全範囲のスキャンには数分かかり、最大20分で終了します。'
+        : !api.demo && state.diag.inputKind === 'saved_ts' ? '保存TSからのスキャンには現在対応していません。'
+        : '合成TSから局を探します。チャンネルは架空の割当てで、電波の検出ではありません。最大3分で終了します。'),
       blockNotice(reason),
       el('fieldset', {class: 'choice', disabled: running},
         el('legend', null, '調べる範囲'),
-        SCAN_PRESETS.map(p => el('label', {class: 'radio'},
+        scanPresets().map(p => el('label', {class: 'radio'},
           el('input', {type: 'radio', name: 'scan-preset', value: p.id, checked: f.preset === p.id, onChange: () => { f.preset = p.id; }}),
           p.label)),
         f.preset === 'custom' ? el('div', {class: 'range'},
@@ -753,7 +899,9 @@
           el('input', {id: 'scan-to', type: 'number', inputmode: 'numeric', min: 13, max: 52, value: f.to,
             'aria-describedby': 'scan-range-help', onInput: e => { f.to = e.target.value; }})) : null,
         el('p', {id: 'scan-range-help', class: ['hint', range.ok ? null : 'invalid']},
-          range.ok ? `${range.from}〜${range.to}ch（${range.channels.length}チャンネル）を調べます。` : range.message)),
+          range.ok ? (['live', 'synthetic'].includes(f.preset)
+            ? `${range.channels.map(ch => `${ch}ch`).join('、')}（${range.channels.length}チャンネル）を調べます。`
+            : `${range.from}〜${range.to}ch（${range.channels.length}チャンネル）を調べます。`) : range.message)),
       el('div', {class: 'actions'},
         running
           ? button(current.state === 'stopping' ? '中止しています…' : 'スキャンを中止する', stopScan, {kind: 'danger', disabled: sc.pending || current.state === 'stopping'})
@@ -768,6 +916,7 @@
     const running = active(scan);
     const result = running ? null : scanResult(scan);
     return el('div', {class: 'scan-progress'},
+      el('p', {class: 'meta'}, `このスキャンの入力元：${INPUT_KINDS[scan.input_kind]?.long || '表示確認用のデモ'}`),
       running ? el('div', null,
         el('label', {for: 'scan-bar', class: 'progress-label'},
           scan.state === 'stopping' ? 'スキャンを中止しています…' : `${scan.current_channel || '—'}chを調べています（${scan.done_channels} / ${total}）`),
@@ -903,10 +1052,11 @@
 
   function phaseNotice(phase) {
     const w = state.watch;
+    const metrics = session()?.receiver_metrics;
     if (phase === 'error') return errorNotice(w.error);
     if (phase === 'cas_failed') {
       return notice('danger', 'カードによる復号に失敗しました',
-        '入力の映像を復号できません。外部CASは未接続です。入力元と対応状況を確認してください。');
+        '入力の映像を復号できません。外部CASとカードの接続状態を確認してください。');
     }
     if (phase === 'hls_failed') {
       return notice('danger', '映像の変換に失敗しました',
@@ -923,7 +1073,12 @@
         return notice('warn', '受信が途中で終了しました', `理由：${END_REASONS[s.end_reason] || '不明'}。もう一度局を選ぶと受信をやり直します。`);
       }
     }
-    return w.error && phase !== 'error' ? errorNotice(w.error) : null;
+    if (w.error && phase !== 'error') return errorNotice(w.error);
+    if (metrics?.rs_omitted_words_estimate > 0) {
+      return notice('warn', '受信データに欠落があります',
+        `復調処理で取り出せなかったデータの推定数：${metrics.rs_omitted_words_estimate}。映像や音声が乱れる場合があります。`);
+    }
+    return null;
   }
 
   function renderRecordingBox() {
@@ -1113,7 +1268,16 @@
                 button('再生する', () => startPlayback(r), {kind: 'secondary', disabled: !r.playback_available || state.mutating || offline()}),
                 r.download_available && !api.demo
                   ? el('a', {class: 'btn btn-secondary', href: r.download_url, download: ''}, 'TSファイルをダウンロード')
-                  : button('TSファイルをダウンロード', () => { list.notice = '画面だけのデモのため、ダウンロードしません。'; }, {kind: 'secondary', disabled: !r.download_available})),
+                  : button('TSファイルをダウンロード', () => { list.notice = '画面だけのデモのため、ダウンロードしません。'; }, {kind: 'secondary', disabled: !r.download_available}),
+                !api.demo ? button(r.deletion_pending ? '削除を再試行する' : '削除する', () => { list.deleteId = r.id; },
+                  {kind: 'danger', disabled: active(r) || list.playing === r.id || state.mutating || offline()}) : null),
+              list.playing === r.id ? el('p', {class: 'hint'}, '削除するには、先に再生を閉じてください。') : null,
+              r.deletion_pending ? el('p', {class: 'hint'}, 'ファイルの削除が完了していません。削除を再試行してください。') : null,
+              list.deleteId === r.id ? notice('warn', 'この録画を削除しますか？',
+                '録画TSと再生用ファイルを削除します。元に戻せません。他の画面でこの録画を再生している場合も、続けて再生できなくなります。', [
+                  button('録画を削除する', () => deleteRecording(r), {kind: 'danger', disabled: state.mutating || offline()}),
+                  button('削除をキャンセルする', () => { list.deleteId = null; }, {kind: 'secondary'}),
+                ]) : null,
               tech('技術的な値を表示', [
                 ['録画ID', r.id], ['受信セッションID', r.session_id], ['物理チャンネル', r.physical_channel ? `${r.physical_channel}ch` : '—'],
                 ['状態（state / end_reason）', `${r.state} / ${r.end_reason || '—'}`], ['途中終了（partial）', r.partial ? 'はい' : 'いいえ'],
@@ -1136,7 +1300,7 @@
         pageHidden = true;
         clearTimeout(timer);
         epoch += 1; api.cancel(); state.suspended = true; resetPlayer();
-        state.mutating = false; state.watch.action = null;
+        state.mutating = false; state.recoveryAction = false; state.watch.action = null;
         state.scan.pending = false; state.rec.pending = false;
         if (state.diag.phase === 'running') state.diag.phase = 'idle';
       });

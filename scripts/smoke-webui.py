@@ -143,6 +143,86 @@ def av(page: Any, label: str, warmup: int = 0) -> dict[str, Any]:
     return value
 
 
+def scan_inputs(context: Any, origin: str) -> dict[str, bool]:
+    """Exercise real UI controls with intercepted API calls, without device I/O."""
+    page = context.new_page()
+    posts: list[dict[str, Any]] = []
+    scans: list[dict[str, Any]] = []
+    live_available = True
+
+    def respond(route: Any) -> None:
+        path = route.request.url.removeprefix(origin).split("?")[0]
+        value: Any = []
+        if path == "/api/bootstrap":
+            value = {
+                "csrf_token": "synthetic-test-token",
+                "live_available": live_available,
+                "scan_available": True,
+                "scan_presets": {"live": [21, 27], "synthetic": [13, 14]},
+            }
+        elif path == "/api/scans" and route.request.method == "POST":
+            body = route.request.post_data_json
+            posts.append(body)
+            value = {
+                **body,
+                "id": body["request_id"],
+                "state": "completed",
+                "end_reason": "eof",
+                "started_at": "2026-10-04T00:00:00Z",
+                "completed_channels": len(body["channels"]),
+                "results": [
+                    {"physical_channel": ch, "state": "not_detected", "service_ids": []}
+                    for ch in body["channels"]
+                ],
+            }
+            scans[:] = [value]
+        elif path == "/api/scans":
+            value = scans
+        route.fulfill(json=value)
+
+    page.route("**/api/**", respond)
+    try:
+        page.goto(origin)
+        live = page.locator('input[name="diag-input"][value="live"]')
+        synthetic = page.locator('input[name="diag-input"][value="synthetic"]')
+        start = page.get_by_role("button", name="スキャンを開始する", exact=True)
+        expect(live).to_be_checked()
+        expect(page.locator('input[name="scan-preset"][value="all"]')).to_be_checked()
+        expect(page.get_by_text("13〜52ch（40チャンネル）を調べます。", exact=True)).to_be_visible()
+        assert not posts
+        synthetic.check()
+        page.locator('input[name="scan-preset"][value="all"]').check()
+        start.click()
+        expect(start).to_be_enabled()
+        assert posts[-1]["input_kind"] == "synthetic"
+        assert posts[-1]["channels"] == list(range(13, 53))
+        live.check()
+        start.click()
+        expect(start).to_be_enabled()
+        assert posts[-1]["input_kind"] == "live" and posts[-1]["channels"] == list(range(13, 53))
+        expect(
+            page.get_by_text("このスキャンの入力元：実機ライブ（SDRボードで受信）")
+        ).to_be_visible()
+        page.locator('input[name="diag-input"][value="saved_ts"]').check()
+        expect(start).to_be_disabled()
+        synthetic.check()
+        page.wait_for_timeout(5500)
+        expect(synthetic).to_be_checked()  # Polling must preserve explicit selection.
+        count = len(posts)
+        page.reload()
+        expect(live).to_be_checked()
+        assert len(posts) == count  # Reload only reads; it never starts reception.
+        live_available = False
+        page.reload()
+        expect(synthetic).to_be_checked()
+        expect(page.locator('input[name="scan-preset"][value="synthetic"]')).to_be_checked()
+        expect(live).to_be_disabled()
+        assert len(posts) == count
+        return {"input_and_range_match": True, "reload_does_not_start": True}
+    finally:
+        page.close()
+
+
 def exercise(
     page: Any, context: Any, server: Server, source: Path, images: Path | None
 ) -> dict[str, Any]:
@@ -491,6 +571,7 @@ def main() -> None:
             page = context.new_page()
             try:
                 result = exercise(page, context, server, args.source, args.images)
+                result["scan_inputs"] = scan_inputs(context, server.origin)
                 result["faults"] = faults(page, context, server)
                 unit_page = context.new_page()
                 unit_page.goto(server.origin + "/?mode=mock")

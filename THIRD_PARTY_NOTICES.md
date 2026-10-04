@@ -63,3 +63,29 @@ research repository. Confirm permission and applicable notices before adding
 those files or a derived receiver image to a public distribution. This is a
 remaining distribution requirement, not a claim that all research files have the
 upstream block license.
+
+## Local live adapter and external CAS
+
+The live wrapper inputs are pinned separately to research commit
+`0b00caacacacd63f95b284575fa843583085f78f` (PR #76). Their SHA-256 values
+are in `live_sources.py`; `prepare-live.py` extracts Git objects to local ignored
+storage. The native image still uses the baseline described above. The research
+wrappers and live CAS are bind-mounted, not redistributed in this repository.
+
+External CAS: https://github.com/tsukumijima/libaribb25 at
+`dc1d96a90ea554d8997b238fd6712eccf553cdb3`, unmodified local build of
+`arib-b25-stream-test` and its library. The checked revision's LICENSE is Apache-2.0.
+Preserve its own license and source notices;
+this repository's GPL declaration does not replace those terms. No CAS source,
+card identifiers, keys, binary package, or container image is distributed here.
+
+
+Live scan service names use unmodified TSDuck 3.45-4798, installed only in the
+local live image. Source: https://github.com/tsduck/tsduck/tree/v3.45-4798 .
+License: BSD-2-Clause; Copyright (c) 2005-2026, Thierry Lelegard.
+The pinned Ubuntu 24 amd64 package SHA-256 is
+`0023689f76e75b64e45253771208bcf8ca95b91fbfd0900da097c729f3c39fde`.
+`Dockerfile.live` also preserves the upstream LICENSE.txt under
+`/usr/share/doc/tsduck/`. No TSDuck code is modified or copied into this repository.
+We do not distribute the resulting image; distribution would also require the
+notices and source/build obligations of all image components to be reviewed.

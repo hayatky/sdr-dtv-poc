@@ -2,7 +2,7 @@
 
 段階2のバックエンドは、段階1のmainから単独で起動できます。実装の仕様は
 `src/sdr_dtv_poc/models.py`と`GET /openapi.json`です。スキャン・HLS・録画・録画再生は
-合成入力で利用できます。`live`は501で、機器を操作しません。`saved_ts`は管理者が
+合成入力と設定済みの`live`で利用できます。実機設定がなければ503 `live_not_configured`です。`saved_ts`は管理者が
 登録した入力の視聴・録画に対応し、範囲スキャンには未対応です。
 
 通常のWebUIは本書のAPIへ接続します。画面だけの模擬デモは`?mode=mock`で選びます。
@@ -13,8 +13,9 @@ UI内の残り時間や段階表示は表示用の推定・変換であり、API
 ## 操作の保護とID
 
 - `GET /api/bootstrap`で起動単位の`csrf_token`、`mode=synthetic_backend`、
-  `live_available=false`、`scan_available/hls_available/recording_available=true`を取得します。
-  プリセットは`scan_presets.synthetic=[13,14]`、`uhf=[13,...,52]`です。
+  `live_available`、`scan_available/hls_available/recording_available=true`を取得します。
+  実機設定があれば`mode=live_backend`、`live_available=true`です。
+  プリセットは`scan_presets.synthetic=[13,14]`、`uhf=[13,...,52]`、`live`は登録済みchです。
 - 変更操作には`Origin`と`X-CSRF-Token`を付けます。Hostは設定したOriginのauthorityと
   完全一致が必要です。CORS・転送Hostは使いません。CLIはOriginも明示します。
 - 開始は202とUUIDを返します。同じ入力と`request_id`の再送は同じIDを返し、異なる入力なら
@@ -58,6 +59,9 @@ UI内の残り時間や段階表示は表示用の推定・変換であり、API
 ```
 
 `channels`は13〜52の重複しない配列です。全範囲は13〜52を列挙します。未指定は合成用13・14。
+`duration_seconds`の上限は1200秒です。WebUIでは実機に1200秒、合成に180秒を指定します。
+実機では登録プリセット外のチャンネルも受信してTMCCとTSを調べます。取得した受信設定は
+Serviceの`profile`へ保存し、再起動後の選局にも使います。
 不正な範囲・重複・空配列は422です。合成用の物理ch表記は架空の割当てで、RF検出ではありません。
 13は`demo.ts`、14は同じディレクトリの`demo-14.ts`です。その他は`not_detected`になります。
 局名・program IDはFFprobeがTSのSIから読んだ値を使い、固定の地域別局名を補いません。
@@ -148,17 +152,17 @@ HLS準備後の`hls`例:
   キューで渡します。満杯またはFFmpeg入力の2秒停滞は`downstream_slow/transport`です。
   欠落を隠してHLSを続けず、変換を停止します。録画に問題がなければ録画は継続します。
 - FFmpegは選択programの最初の映像・音声をH.264/AACへ変換します。HLSは2秒segment、
-  一覧6件、削除待ち2件。出力32 MiB・ファイル数16を100ms間隔で監視し、超過時に停止します。
+  一覧6件、削除待ち2件。出力64 MiB・ファイル数16を100ms間隔で監視し、超過時に停止します。
   監視間隔中の出力増分はあり得ます。古いsegmentだけを削除し、録画は削除しません。
 - HLSの`starting → ready → completed`は配信側の状態で、ブラウザー再生成功とは別です。
   故障は`failed`と`error_code/error_stage`、再起動は`interrupted`になります。
   URLと保存先はsessionごとに別です。失敗・再起動後の未完了HLSは公開を止めます。
-- 暗号化されたTS packetを検出すると`cas_unavailable/cas`。CASは未設定で、独自実装や
-  自動カード操作はありません。オリジナルTSは加工しません。変換失敗は`converter_failed`等、
+- 外部CAS未設定で暗号化されたTS packetを検出すると`cas_unavailable/cas`です。
+  固定OSSの外部利用にとどめ、独自CAS実装はありません。オリジナルTSは加工しません。変換失敗は`converter_failed`等、
   出力不足は`no_playable_stream`、容量不足は`storage_full/storage`として分けます。
 - sessionの有界診断保存は最大4,000,000,000 byte。上限50 Mbps×600秒=3.75 GBに対応します。
   空き128 MiB未満なら停止します。録画とは別のファイルであり、容量は重複します。
-- session・scan・recordingの履歴は各1000件まで。保存済みファイルを自動削除しません。
+- session・scanの履歴と、未削除recordingは各1000件まで。保存済みファイルを自動削除しません。
   終了したsessionのHLSも保持するので、容量不足時は新規開始を止めて運用者が保存先を確認します。
 
 遅延測定では、操作受理の`started_at`、最初のTSの`ts_started_at`、HLSの`ready_at`を保存し、
@@ -212,10 +216,12 @@ PlaybackはMediaStatusの項目に`id/recording_id/started_at/deadline_at/ended_
 `url`はHLS準備後に得られます。`completed`で変換完了、`failed`なら`error_code/error_stage`を表示します。
 再生の失敗でRecordingの完了状態やオリジナルTSを変更しません。
 
-変換は同時1件、上限180秒、256 MiB・512ファイルです。入力は登録したオリジナルを読み、
-別ディレクトリへ出力します。受信は起動しません。同じ録画の重複要求は既存ジョブを返します。
+変換は同時1件、上限600秒、640 MiB・512ファイルです。入力は登録したオリジナルを読み、
+別ディレクトリへ出力します。受信は起動しません。同じ画質設定・録画の重複要求は既存ジョブを返します。
+`encoding_profile`が古いキャッシュは、次の明示的な再生開始で新しい設定により再生成します。
+元の録画TSと以前の派生物は保持し、録画の手動削除時に全世代の派生物も削除します。
 スクランブル済み録画の後日再生には、別途固定した外部CAS・適合するカード/権限等が必要です。
-本実装はそれらを用意せず、CAS失敗として通知します。カードがあれば必ず再生できるとは保証しません。
+実機用構成では管理者が用意した固定OSSへ接続し、未設定・失敗時はCAS失敗として通知します。カードがあれば必ず再生できるとは保証しません。
 
 ## SQLite・ファイル配信
 
@@ -248,15 +254,59 @@ IDは認証情報ではありません。インターネットへ公開するサ
 | 409 `recording_busy` | 録画停止を待つ。選局・scan・二重録画は禁止 |
 | 409 `session_busy` / `scan_busy` | 先の操作の停止・回収を待つ |
 | 409 `device_busy` | 別プロセスが同じ排他を保持。勝手に停止しない |
-| 409 `restore_unverified` | 作業者の復元照合が必要。自動再試行しない |
+| 409 `restore_unverified` | USB接続を確認し、WebUIの復旧ボタンで設定を照合する。自動再試行しない |
 | 409 `insufficient_session_time` | 要求時間を満たせない。5分録画を開始しない |
 | 409 `storage_full` / `recording_output_limit` | 空き容量・有限上限を確認 |
 | 409 `recording_incomplete` / `recording_file_missing` / `recording_unavailable` | partial・未完了・欠損を再生成功として扱わない |
 | 409 `playback_busy` | 別録画の変換終了を待つ |
 | 404 `playback_not_started` | CSRF付きPOSTで再生を開始する |
-| 501 `live_not_implemented` / `saved_scan_not_configured` | 今回対応しない入力機能 |
+| 503 `live_not_configured` / `live_channel_not_configured` / `saved_scan_not_configured` | 未設定または未対応の入力・チャンネル |
 | 503 `database_error` / `source_missing` / `source_not_registered` | 保存先・管理者設定の確認が必要 |
 
 ジョブ開始後の失敗はHTTP 200の状態取得で返ります。HTTPの成功だけで処理成功と表示しません。
 EOF・期限・中止、RF/入力、CAS、変換、保存、ブラウザーの故障を分けて表示してください。
 EOF後の過去sessionを現在の受信成功として再表示しないでください。
+
+## 画質と手動削除
+
+HLSはH.264 veryfast、映像平均8 Mbps・最大12 Mbps・VBV24 Mbit、音声AAC160 kbpsです。
+元の幅・高さ・SARを保ち、bwdifのsend_frame/interlacedでインターレース映像を解除して
+30000/1001 fpsへ変換します。1440×1080・SAR4:3の放送は16:9で表示されます。
+GOP60で約2.002秒ごとに独立したsegmentを作ります。録画TSは再圧縮しません。
+
+POST `/api/recordings/{id}/delete`はCSRF/Origin保護付きで、確認した録画のTSと関連する
+全世代の再生用ディレクトリを削除します。録画中は409 `recording_busy`、対象録画の
+変換や子回収が続いている間は409 `playback_busy`です。任意パスを受け取りません。
+同じ削除を再送しても安全で、削除済み録画のGET・download・古いartifact URLは404です。
+一覧から削除済み項目を除外しますが、開始要求の再送で復活しないよう削除記録は残します。
+
+ファイルの削除前にDBで`deletion_pending=true`と全artifactの失効を同時に確定します。
+ファイル削除失敗は503 `recording_delete_failed`で、項目は一覧へ残り、再起動後も
+「削除を再試行する」で処理を再開できます。完了時は`deleted_at`を保存します。
+親や対象のsymlinkをたどって外部のデータを削除しません。既に開かれたdownloadのFDは
+その応答が閉じるまで存続し、新しい取得は拒否します。
+
+UIでは再生を閉じてから確認ボタンで削除します。他の画面の再生は以降のsegment取得が
+できなくなる旨も表示します。session/nativeの診断TS・IQ・別途保存したMP4は対象外です。
+従って録画の削除だけで診断用データ全体の容量が回収されるわけではありません。
+
+## 受信機の復旧
+
+`GET /api/recovery`は`state`（idle/running/completed/failed）、`required`、
+`error_code`を返します。状態取得だけでは機器を操作しません。
+`POST /api/recovery`は空のJSONを受け取り、CSRF・Origin検査と共通の機器排他を経て
+復旧処理を開始します（202）。実行中の同じ要求は処理を増やさず現在の状態を返します。
+復旧中は受信・スキャンを開始できません。受信中・録画中・スキャン中の復旧も拒否します。
+
+対象は保存された中断ジョブと受信前のRX設定です。現在値が受信前または中断時の
+設定と一致する場合だけ必要なRX設定を戻し、別の接続で全項目を読み直します。
+ワーカーは最大25秒、親は最大30秒で停止・回収します。任意のパス・コマンド・
+設定値はAPIから受け取りません。RX取得・TX・ファームウェア操作も行いません。
+
+成功時は確認記録を保存して警告を解除します。受信・録画は自動再開しません。
+途中の失敗、保存済みの録画、元の機器ジョブは保持します。復旧確認済みの証拠が
+ありDBの更新前に終了した場合は、証拠を照合して更新を再開できます。
+
+失敗は`board_unreachable`、`settings_changed`、`recovery_evidence_missing`、
+`recovery_failed`として返し、未確認の制限を維持します。利用者の手順は
+[復旧ガイド](recovery.md)を参照してください。再読み込み・再起動では自動実行しません。

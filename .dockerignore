@@ -13,6 +13,7 @@
 !src/sdr_dtv_poc/static/
 !src/sdr_dtv_poc/static/*.html
 !src/sdr_dtv_poc/static/*.js
+!src/sdr_dtv_poc/static/*.css
 !scripts/
 !scripts/generate-demo.py
 !src/sdr_dtv_poc/static/vendor/
