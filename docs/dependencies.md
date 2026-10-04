@@ -53,3 +53,11 @@ OSのFFmpeg・GNU Radioと研究元は[THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTIC
 任意のブラウザー検証にだけ[Playwright Python 1.58.0](https://github.com/microsoft/playwright-python)
 を一時環境で使いました。distributionのLicense-Expressionと同梱LICENSEはApache-2.0です。
 アプリのlockfile・イメージへ追加せず、ブラウザーや検証用バイナリも本リポジトリから配布しません。
+
+## 2026-10-04の照合結果
+
+2026-10-04、Python依存28件の実metadata・licenseを一覧と照合しました。
+Vue/hls.jsの固定tarballとApache-2.0本文も再取得し、manifestの5ファイルと完全一致しました。
+新しいデモimage内のFFmpeg、固定native image内のGNU Radio等、研究元Gitオブジェクト、
+外部CASとTSDuckの通知は[配布内容と依存物の確認](publication-audit.md)に確認範囲を記載しています。
+ソースと導入資料を提供し、バイナリ・imageは配布しません。再配布時には対応ソース等の準備が別途必要です。

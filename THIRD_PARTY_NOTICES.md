@@ -2,8 +2,8 @@
 
 The project's original source is GPL-3.0-or-later. Dependency licenses remain
 those of their respective authors. No broadcast data or receiver firmware is
-included. This repository distributes source and local build instructions;
-container images and third-party binaries are not published by this change.
+included. This repository provides source and local build instructions;
+container images and third-party binaries are not distributed.
 
 ## Python application
 
@@ -23,9 +23,8 @@ Transitive dependency notices are retained in the installed Python distributions
 see `docs/dependencies.md` for the checked license inventory. No modifications
 are made to these distributions. Vue 3.5.22 (MIT) and hls.js 1.6.13 (Apache-2.0) production files are
 vendored unmodified in `src/sdr_dtv_poc/static/vendor/`, with full license texts
-and a source/hash manifest. The UI specialist (#18) can use these same-origin
-assets without Node/npm or a runtime CDN. The temporary API entry uses plain
-JavaScript; it does not implement the viewing UI.
+and a source/hash manifest. The viewing UI uses these same-origin assets without
+Node/npm or a runtime CDN.
 
 ## OS runtime and generated demo
 
@@ -43,8 +42,8 @@ excluded from Git and the Docker build context; the image generates its own.
 Before distributing an image or binaries, collect corresponding source for all
 included GPL/LGPL components, including Ubuntu patches, exact versions and
 build instructions, and preserve each component's notices. A link to an upstream
-repository alone is not a substitute for that source delivery. This PR does not
-publish images, wheels, or binary releases.
+repository alone is not a substitute for that source delivery. This repository does not
+distribute images, wheels, or binary releases.
 
 ## Research receiver (separate local acquisition)
 

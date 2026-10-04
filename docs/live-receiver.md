@@ -62,7 +62,7 @@ cp examples/live.env.example data/live.env
 同じチャンネルに異なるゲインを指定した設定は拒否します。
 
 例えば、27chで測定して30 dBを採用する場合は、`profiles`へ次の項目を追加します。
-この値は[Issue #37の比較試験](issue-37-validation.md)で使用した条件であり、全局共通の推奨値ではありません。
+この値は[Issue #37の比較試験](validation-reception-quality.md)で使用した条件であり、全局共通の推奨値ではありません。
 
 ```json
 "ch27": {
@@ -87,7 +87,7 @@ CASはlibaribb25 `dc1d96a90ea554d8997b238fd6712eccf553cdb3`の無改変ビルド
 `bin/arib-b25-stream-test`と`lib/libaribb25.so`等が必要です。オプションは
 `-m 0 -p 0 -s 0 -v 0`で、EMM処理や詳細出力を使いません。カードの改造・複製・
 鍵抽出やCAS実装の変更は行いません。CAS終了コードだけで復号成功とはせず、
-HLSの生成と実際のA/Vで確認します。このPRはCASやnative imageを配布しません。
+HLSの生成と実際のA/Vで確認します。CASやnative imageは同梱していません。
 
 ## ホストの一時準備と起動
 
