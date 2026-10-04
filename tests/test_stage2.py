@@ -69,17 +69,20 @@ async def ready(manager: Manager) -> Any:
 
 
 @pytest.mark.parametrize("with_hls", [False, True])
+@pytest.mark.parametrize("live", [False, True])
 def test_recording_reserves_session_and_media_growth(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, with_hls: bool
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, with_hls: bool, live: bool
 ) -> None:
     async def run() -> None:
         m = Manager(settings, adapter_factory=lambda _: Paced())
         try:
             session = await ready(m)
+            if live:
+                m.sources[session.id] = replace(m.sources[session.id], live_id="uhf-18")
             if with_hls:
                 session.hls = MediaStatus()
             needed = int(settings.demo_bitrate * 300 / 8)
-            required = settings.min_free_bytes + 2 * needed
+            required = settings.min_free_bytes + (3 if live else 2) * needed
             if with_hls:
                 required += settings.max_hls_bytes
             usage = Mock(free=required - 1)
@@ -132,21 +135,24 @@ def test_media_cleanup_can_resume_after_cancellation(settings: Settings) -> None
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("live", [False, True])
 def test_playback_preserves_capacity_for_running_recording(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, live: bool
 ) -> None:
     async def run() -> None:
         tick = 0.0
         m = Manager(settings, adapter_factory=lambda _: Paced(), clock=lambda: tick)
         try:
             session = await ready(m)
+            if live:
+                m.sources[session.id] = replace(m.sources[session.id], live_id="uhf-18")
             record = m.recordings.start(RecordingStart(request_id=uuid4(), session_id=session.id))
             m.recordings.write(PACKET)
             m.recordings.finish(EndReason.requested)
             active = m.recordings.start(RecordingStart(request_id=uuid4(), session_id=session.id))
             tick = 100
             required = settings.min_free_bytes + settings.max_playback_bytes
-            required += int(settings.demo_bitrate * 200 / 8) * 2
+            required += int(settings.demo_bitrate * 200 / 8) * (3 if live else 2)
             usage = Mock(free=required - 1)
             monkeypatch.setattr("sdr_dtv_poc.recording.shutil.disk_usage", lambda _: usage)
             with pytest.raises(Conflict, match="storage_full"):

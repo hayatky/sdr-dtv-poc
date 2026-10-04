@@ -14,7 +14,7 @@ from .media import ENCODING_PROFILE, Media, timestamp
 from .models import STOP_GRACE, Artifact, EndReason, Playback, Recording, RecordingStart, State
 
 # HD conversion stays finite while allowing concurrent live encoding on the
-# bounded CPU allocation. Playback begins as soon as the first segments exist.
+# bounded CPU allocation. Playback begins after the VOD playlist is finalized.
 PLAYBACK_LIMIT = 600
 
 if TYPE_CHECKING:
@@ -88,14 +88,15 @@ class Recordings:
         needed = int(m.sources[session.id].bitrate * request.duration_seconds / 8)
         if needed > m.settings.max_recording_bytes:
             raise Conflict("recording_output_limit")
-        # The session keeps its own original TS while recording the same bytes.
+        # Live demodulation also retains its native TS alongside session/recording.
+        copies = 3 if m.sources[session.id].live_id is not None else 2
         # Include bounded media growth on this filesystem as well.
         media_growth = m.settings.max_hls_bytes if session.hls else 0
         if self.playback_task and not self.playback_task.done():
             media_growth += m.settings.max_playback_bytes
         if (
             shutil.disk_usage(m.settings.data_dir).free
-            < m.settings.min_free_bytes + 2 * needed + media_growth
+            < m.settings.min_free_bytes + copies * needed + media_growth
         ):
             raise Conflict("storage_full")
         record = Recording(
@@ -327,7 +328,9 @@ class Recordings:
         if self.active:
             session = self.manager.sessions[self.active.session_id]
             remaining = max(0.0, self.deadline - self.manager.clock())
-            recording_growth = int(self.manager.sources[session.id].bitrate * remaining / 8) * 2
+            source = self.manager.sources[session.id]
+            copies = 3 if source.live_id is not None else 2
+            recording_growth = int(source.bitrate * remaining / 8) * copies
             if session.hls:
                 recording_growth += self.manager.settings.max_hls_bytes
         if (

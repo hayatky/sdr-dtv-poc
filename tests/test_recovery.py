@@ -13,7 +13,7 @@ from sdr_dtv_poc.config import Settings
 from sdr_dtv_poc.device_lock import DeviceBusy, DeviceLock
 from sdr_dtv_poc.live_config import LiveConfig
 from sdr_dtv_poc.manager import Conflict, Manager
-from sdr_dtv_poc.models import InputKind, Restore, Session, SessionStart, State
+from sdr_dtv_poc.models import InputKind, Restore, Scan, ScanStart, Session, SessionStart, State
 from sdr_dtv_poc.recovery_worker import restore, run
 
 BASELINE = {
@@ -259,6 +259,49 @@ def test_recovery_api_requires_csrf_and_read_does_not_start(
             == 202
         )
         start.assert_called_once()
+
+
+def test_interrupted_scan_and_shared_jobs_expose_recovery(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        settings = Settings(data_dir=tmp_path / "app", device_lock_dir=tmp_path / "device")
+        m = Manager(settings)
+        request = ScanStart(request_id=uuid4(), input_kind=InputKind.live)
+        scan = Scan(
+            id=uuid4(),
+            request_id=request.request_id,
+            input_kind=InputKind.live,
+            state=State.running,
+            restore=Restore.pending,
+            total_channels=1,
+            results=[],
+            started_at="2026-10-04T00:00:00Z",
+            deadline_at="2026-10-04T00:20:00Z",
+        )
+        m.store.save_record("scans", scan, request)
+        await m.close()
+        m = Manager(settings)
+        try:
+            assert m.scans.items[scan.id].state == State.interrupted
+            assert m.recovery.status()["required"] is True
+            with pytest.raises(Conflict, match="restore_unverified"):
+                m.check_idle()
+            m.scans.items.clear()
+            folder = m.device.root / "poc-abandoned"
+            folder.mkdir(parents=True)
+            path = folder / "job.json"
+            path.write_text(json.dumps({"state": "running", "restoration": {"state": "pending"}}))
+            assert m.recovery.status()["required"] is True
+            # The same pending job is normal while a local scan is running.
+            m.scans.task = asyncio.create_task(asyncio.sleep(0))
+            assert m.recovery.status()["required"] is False
+            await m.scans.task
+            path.write_text("{")
+            assert m.recovery.status()["required"] is True
+            assert m.recovery.task is None  # GET never starts device work.
+        finally:
+            await m.close()
+
+    asyncio.run(scenario())
 
 
 def test_recovery_timeout_reaps_child_and_keeps_gate(

@@ -29,6 +29,10 @@ def start(env_file: Path, project: str, restart_host: bool = False) -> None:
         device = next(v["source"] for v in volumes if v["target"] == "/device")
         current = state / "current.json"
         active = json.loads(current.read_text()) if current.exists() else None
+        # /tmp is cleared on reboot, while the administrator's state persists.
+        # Keep the old record until fresh preparation succeeds, but do not reuse it.
+        if active and not Path(active["host"]).exists():
+            active = None
         fingerprint = hashlib.sha256(env_file.read_bytes()).hexdigest()
         if active and restart_host and not (Path(active["host"]) / "host-cleanup").exists():
             (Path(active["host"]) / "host-stop").touch()

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from .device_lock import DeviceBusy
-from .models import Restore, Scan, Session
+from .models import Restore, Scan, Session, State
 
 if TYPE_CHECKING:
     from .manager import Manager
@@ -25,9 +25,23 @@ class Recovery:
     def required(self) -> bool:
         m = self.manager
         items: list[Session | Scan] = [*m.sessions.values(), *m.scans.items.values()]
-        return (m.device.root / "recovery-required.json").exists() or any(
-            item.restore in {Restore.unknown, Restore.failed} for item in items
-        )
+        if (m.device.root / "recovery-required.json").exists() or any(
+            item.restore in {Restore.unknown, Restore.failed}
+            or (
+                item.restore == Restore.pending
+                and item.state not in {State.starting, State.running, State.stopping}
+            )
+            for item in items
+        ):
+            return True
+        # An active local receiver is expected to have a pending hardware job.
+        # Inspect abandoned/shared jobs once local reception has stopped.
+        if any(task and not task.done() for task in (m.task, m.scans.task)):
+            return False
+        try:
+            return bool(m.device.pending_jobs())
+        except (DeviceBusy, OSError):
+            return True
 
     def status(self) -> dict[str, object]:
         return {"state": self.state, "error_code": self.error_code, "required": self.required()}

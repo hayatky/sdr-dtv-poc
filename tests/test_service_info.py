@@ -33,7 +33,8 @@ def test_names_require_current_actual_matching_transport() -> None:
     )
 
 
-def test_new_name_preserves_existing_service_references() -> None:
+@pytest.mark.parametrize("source_id", ["uhf-18", "renamed-preset"])
+def test_new_name_preserves_existing_service_references(source_id: str) -> None:
     old = Service(
         id="existing",
         name=None,
@@ -51,7 +52,9 @@ def test_new_name_preserves_existing_service_references() -> None:
     manager.store.records.return_value = []
     scans = Scans(manager)
     scans.services[old.id] = old
-    new = old.model_copy(update={"id": "new", "name": "試験テレビ", "original_network_id": 8})
+    new = old.model_copy(
+        update={"id": "new", "name": "試験テレビ", "original_network_id": 8, "source_id": source_id}
+    )
     scans.keep_service_id(new)
     assert new.id == old.id
     scans.services[new.id] = new
@@ -64,6 +67,12 @@ def test_new_name_preserves_existing_service_references() -> None:
     foreign = new.model_copy(update={"id": "foreign", "original_network_id": 10})
     scans.keep_service_id(foreign)
     assert foreign.id == "foreign"
+
+    synthetic = old.model_copy(update={"input_kind": InputKind.synthetic})
+    scans.services = {synthetic.id: synthetic}
+    other_source = synthetic.model_copy(update={"id": "other", "source_id": "other-file"})
+    scans.keep_service_id(other_source)
+    assert other_source.id == "other"
 
 
 def crc(data: bytes) -> bytes:

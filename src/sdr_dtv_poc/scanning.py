@@ -359,7 +359,7 @@ class Scans:
             if (
                 s.input_kind == service.input_kind
                 and s.physical_channel == service.physical_channel
-                and s.source_id == service.source_id
+                and (service.input_kind == InputKind.live or s.source_id == service.source_id)
                 and s.transport_stream_id == service.transport_stream_id
                 and s.service_id == service.service_id
                 and (
