@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,29 @@ def test_live_profiles_require_explicit_measured_conditions(tmp_path: Path) -> N
         )
     )
     with pytest.raises(ValueError, match="unexpected"):
+        LiveConfig.read(path)
+
+
+def test_channel_gain_configuration_is_unambiguous(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("sdr_dtv_poc.live_config.verify", lambda root: None)
+    path = tmp_path / "live.json"
+    profile = LiveProfile(27, 3, 0.125, 2, 4, 2, gain_db=30)
+    profiles = {"channel": asdict(profile)}
+    data = {
+        "research_root": "/research",
+        "native_python": "/usr/bin/python3",
+        "profiles": profiles,
+    }
+    path.write_text(json.dumps(data))
+    config = LiveConfig.read(path)
+    assert config.gain_for_channel(27) == 30  # Diagnostic capture before TMCC discovery.
+    assert config.gain_for_channel(21) == 20
+    assert config.receive_profile(LiveProfile(21, 3, 0.125, 2, 4, 2, gain_db=15)).gain_db == 15
+    profiles["conflict"] = asdict(LiveProfile(27, 3, 0.125, 2, 4, 2))
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="conflicting RX gains"):
         LiveConfig.read(path)
 
 

@@ -9,8 +9,11 @@ WebUIから診断、合成13・14chのスキャン、保存した局の選局、
 USB切断後に視聴できない場合は、[WebUIで復旧する手順](docs/recovery.md)を参照してください。
 Safariでの両チャンネルの視聴・録画再生はユーザー確認済みです。
 その際の画質改善要望を受け、映像8 Mbps・最大12 Mbpsへ変更し、録画の手動削除を追加しました。
-周期的な映像ノイズとTS欠落は[Issue #37](https://github.com/hayatky/sdr-dtv-poc/issues/37)で
-比較・修正し、変更後の主観的な画質を確認します。反復USB切断後の機器確認と復旧も残っています。
+周期的な映像ノイズとTS欠落は[Issue #37の比較記録](docs/issue-37-validation.md)を参照してください。
+今回の27chではRXゲイン20 dBで欠落が再現し、30 dBで改善しました。
+チャンネル別の設定をスキャンと保存局の選局にも反映するよう修正しています。
+ゲインの適値と品質は受信条件によって異なり、全局・全環境での無欠落を保証するものではありません。
+修正後の27chでの300秒録画は、[USB切断の再発](https://github.com/hayatky/sdr-dtv-poc/issues/38)により未達です。
 
 [Issue #29の実装と引継ぎ](docs/issue-29-handoff.md)、
 [UI接続の検証記録](docs/issue-29-validation.md)を参照してください。

@@ -83,6 +83,7 @@ def run(
         if profile_path
         else config.profiles[source_id]
     )
+    profile = config.receive_profile(profile)
     lock_stat = os.stat(lock_root / ".device.lock")
     fd_stat = os.fstat(lock_fd)
     if (lock_stat.st_dev, lock_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
@@ -187,6 +188,7 @@ def run(
                     save(
                         directory / "live-progress.json",
                         {
+                            "rx_gain_db": profile.gain_db,
                             "iq_received_bytes": job["received_bytes"],
                             "startup_discarded_bytes": startup_discarded_bytes,
                             "demod_input_samples": row["input_samples"],
@@ -450,6 +452,7 @@ def run(
         save(
             directory / "live-result.json",
             {
+                "rx_gain_db": profile.gain_db,
                 "restore": "verified"
                 if restore == "restored" and "independent_readback" in job
                 else "not_required"

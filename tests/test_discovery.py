@@ -2,7 +2,7 @@
 import asyncio
 import json
 import signal
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -175,8 +175,9 @@ def test_cancelled_scan_with_unknown_restore_is_failed_and_blocks_restart(
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("gain", [None, 30])
 def test_discovered_profile_survives_restart_and_is_used_for_tuning(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gain: int | None
 ) -> None:
     used = []
 
@@ -218,6 +219,11 @@ def test_discovered_profile_survives_restart_and_is_used_for_tuning(
         )
         m.store.save_record("services", service)
         await m.close()
+        if gain is not None:
+            assert config.live
+            # The preset name and demodulation parameters differ from the
+            # saved station. Only its physical channel's RX gain may override.
+            config.live.profiles["renamed"] = LiveProfile(35, 3, 0.125, 2, 4, 2, gain_db=gain)
         m = Manager(config)
         monkeypatch.setattr("sdr_dtv_poc.manager.LiveAdapter", Adapter)
         session = m.start(
@@ -226,7 +232,8 @@ def test_discovered_profile_survives_restart_and_is_used_for_tuning(
             )
         )
         assert session.service and session.service.physical_channel == 35
-        assert used == [profile]
+        assert used == [replace(profile, gain_db=gain if gain is not None else 20)]
+        assert session.service.profile == asdict(profile)
         assert m.task
         await m.task
         await m.close()
