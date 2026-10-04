@@ -38,7 +38,7 @@ sh scripts/check.sh
 `pyproject.toml`のdevグループにRuff、mypy、pytestをまとめています。
 HTTPXはAPIテストと同時に追加しました。FastAPI・Pydantic・Uvicornを実行依存として
 `uv.lock`で管理します。API・合成TSアダプター・Compose起動は実装済みです。
-合成/保存TSからのHLS生成・録画・再生も実装済みです。WebUIは合成入力のAPI・HLSへ接続済みで、実機入力は後続Issueです。起動はREADME、接点は
+合成/保存TSからのHLS生成・録画・再生も実装済みです。WebUIは実機入力にも対応し、#5で実機の検証を完了しました。起動はREADME、接点は
 [API仕様](api.md)、固定native環境は[受信処理](receiver.md)を参照してください。
 
 ## 日常のコマンド
@@ -86,8 +86,8 @@ Python依存導入とは別です。uvの管理PythonからOS導入のGNU Radio�
 開始・停止・EOF・session期限・排他・異常終了・DB障害・再起動時の回収と
 Host/Origin/CSRF・ファイル配信を検査します。#16の300秒期限は時計を注入した試験で確認済みです。
 WebUIのAPI・HLS接続は#29で確認済みです。#19ではシステム全体の異常経路を照合し、
-実時間300秒の実機録画は#22で確認します。
-現在の着手手順は[#5への引継ぎ](issue-5-handoff.md)を参照してください。
+実時間300秒の実機録画は#22と#37で確認済みです。
+現在の着手手順は[#6への引継ぎ](issue-6-handoff.md)を参照してください。
 mock成功と実機RX・受信中A/Vの成功を分けて記録します。
 
 CI設定は`.github/workflows/sensitive-data.yml`です。

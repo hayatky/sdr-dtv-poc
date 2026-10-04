@@ -23,9 +23,8 @@ Transitive dependency notices are retained in the installed Python distributions
 see `docs/dependencies.md` for the checked license inventory. No modifications
 are made to these distributions. Vue 3.5.22 (MIT) and hls.js 1.6.13 (Apache-2.0) production files are
 vendored unmodified in `src/sdr_dtv_poc/static/vendor/`, with full license texts
-and a source/hash manifest. The UI specialist (#18) can use these same-origin
-assets without Node/npm or a runtime CDN. The temporary API entry uses plain
-JavaScript; it does not implement the viewing UI.
+and a source/hash manifest. The viewing UI uses these same-origin assets without
+Node/npm or a runtime CDN.
 
 ## OS runtime and generated demo
 
