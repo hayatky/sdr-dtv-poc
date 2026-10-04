@@ -26,7 +26,10 @@ class Settings:
     max_recording_bytes: int = 2_000_000_000
     max_hls_bytes: int = 64 * 1024 * 1024
     max_playback_bytes: int = 640 * 1024 * 1024
-    media_queue_chunks: int = 256
+    # At 1,316 bytes per adapter read, 2,048 chunks hold about 2.57 MiB.
+    # Allow codec/CAS startup at full-segment rates; stalled drains still fail
+    # after two seconds and queue exhaustion remains an explicit error.
+    media_queue_chunks: int = 2048
     device_lock_dir: Path | None = None
     min_free_bytes: int = 128 * 1024 * 1024
     live: LiveConfig | None = None
