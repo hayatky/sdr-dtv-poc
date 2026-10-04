@@ -46,7 +46,7 @@ PR #39でmain `c41af0e`へ統合され、この実装を使ってCompose/uvの�
 ## 継続している課題
 
 USB切断の原因と恒久的な安定性は[PoC #38](https://github.com/hayatky/sdr-dtv-poc/issues/38)で調査しています。
-受信処理の一部をボード内へ移す[研究元#74](https://github.com/hayatky/hlfec-sdr-lab/issues/74)と、
+受信処理の一部をボード内へ移す[研究Issue #41](https://github.com/hayatky/sdr-dtv-poc/issues/41)と、
 CATV経由のBS受信は将来の拡張です。前者は対象ボードで未実証、後者はこのWebUIでは未実装です。
 
 ## 過去の記録

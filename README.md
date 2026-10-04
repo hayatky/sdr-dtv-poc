@@ -103,8 +103,10 @@ Vueとhls.jsは同梱しているため、Node.js/npmや実行時CDNは不要で
 
 ## ここまでの開発
 
-研究元の[hlfec-sdr-lab](https://github.com/hayatky/hlfec-sdr-lab)で地上波の復調・TS出力を確認し、
-その成果をこのPoCへ接続しました。開発基盤を作り、合成データでWebUI・視聴・録画を実装した後、
+非公開の先行研究で地上波の復調・TS出力を確認し、
+その成果をこのPoCへ接続しました。元の研究リポジトリは今後も非公開です。
+必要な受信ソースは[このリポジトリに収録](native/README.md)しており、利用者のアクセス権は不要です。
+このPoCの検証結果は[公開する検証記録](docs/validation.md)で確認できます。開発基盤を作り、合成データでWebUI・視聴・録画を実装した後、
 実ボードでのスキャンと再生、300秒録画へ進みました。最後に受信ゲインの反映とHLS起動時の
 キュー不足を修正し、5分録画の再生まで確認しました（PR #30〜#34、#36、#39）。
 
@@ -112,10 +114,10 @@ Vueとhls.jsは同梱しているため、Node.js/npmや実行時CDNは不要で
 
 1. **USB切断の原因調査**：[#38](https://github.com/hayatky/sdr-dtv-poc/issues/38)で
    接続条件と切断原因を切り分け、長時間受信の信頼性を評価します。
-2. **受信処理の一部をボード内へ移す研究**：研究元の[#74](https://github.com/hayatky/hlfec-sdr-lab/issues/74)では、
+2. **受信処理の一部をボード内へ移す研究**：このPoCの[#41](https://github.com/hayatky/sdr-dtv-poc/issues/41)で、
    同期・FFT・等化・判定をFPGAへ移し、ボード内のArm/DDRでデータを保持してUSB転送量を減らす構成を検討します。
    Flashを書き換えずRAMから一時起動する計画で、対象ボードでの動作・復帰や性能はまだ未実証です。
-   現行PoCとは別の研究であり、USB切断の解決済み対策ではありません。
+   現行PoCとは別の研究であり、USB切断の解決済み対策ではありません。[研究計画と判定条件](docs/fpga-research.md)を参照してください。
 3. **CATV経由のBS受信**：研究元のQAM受信の成果を再利用し、このWebUIからBSを視聴・録画できるようにする今後の実装課題です。
    現在のPoCは未対応で、衛星アンテナからの直接受信とは異なります。必要な受信・サービス分離・再生経路を接続し、
    実機で検証します。初期の地上波PoCの完成条件には追加しません。
@@ -290,6 +292,7 @@ Composeの保存先はprojectごとのvolumeで、実機は`live-data`、合成�
 | 実機の準備、停止、USB切断後の対応 | [実機の導入手順](docs/live-receiver.md)、[復旧手順](docs/recovery.md) |
 | 動作を確認した環境・結果・制限 | [検証結果と対応環境](docs/validation.md) |
 | 開発環境と検査の実行 | [開発手順](docs/development.md)、[公開前の検査](docs/sensitive-data.md) |
+| 今後の研究 | [FPGAへの受信処理移行](docs/fpga-research.md)、[研究Issue #41](https://github.com/hayatky/sdr-dtv-poc/issues/41) |
 | 実装の仕組み | [API仕様](docs/api.md)、[受信処理](docs/receiver.md)、[WebUIの構成](docs/webui-design.md) |
 | 依存物と再配布の条件 | [依存一覧](docs/dependencies.md)、[配布内容の確認](docs/publication-audit.md)、[第三者のライセンス表示](THIRD_PARTY_NOTICES.md) |
 
